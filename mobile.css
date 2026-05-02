@@ -27,6 +27,11 @@
 ══════════════════════════════════════════════════════════════════ */
 @media (max-width: 900px) {
 
+  /* Prevent body scroll when sidebar/drawer is open */
+  body {
+    overflow-x: hidden;
+  }
+
   /* Mobile header */
   .mob-header {
     display: flex !important;
@@ -72,13 +77,18 @@
   }
   .sb-close { display: flex !important; }
 
-  /* Layout */
-  #app { grid-template-columns: 1fr !important; }
-  /* Let #main grow naturally — fixed height clips content behind the nav */
+  /* Layout — Fixed scroll containment */
+  #app {
+    grid-template-columns: 1fr !important;
+    height: 100dvh;
+    overflow: hidden;
+  }
+
+  /* Fixed height for #main to enable proper scrolling */
   #main {
-    height: auto !important;
-    max-height: none !important;
-    min-height: calc(100dvh - var(--hh) - 64px);
+    height: calc(100dvh - var(--hh) - 64px) !important;
+    max-height: calc(100dvh - var(--hh) - 64px) !important;
+    min-height: auto !important;
     overflow-y: auto !important;
     overflow-x: hidden !important;
     -webkit-overflow-scrolling: touch;
@@ -92,9 +102,22 @@
   .pgrid { grid-template-columns: 1fr !important; gap: 10px !important; }
 
   /* Workspace */
-  .wsbody { grid-template-columns: 1fr !important; overflow-y: auto; -webkit-overflow-scrolling: touch; height: auto; }
-  .wsmain { overflow-y: auto; padding: 14px; }
-  .ws { height: auto !important; display: flex; flex-direction: column; }
+  .wsbody {
+    grid-template-columns: 1fr !important;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    height: auto;
+  }
+  .wsmain {
+    overflow-y: auto;
+    padding: 14px;
+    -webkit-overflow-scrolling: touch;
+  }
+  .ws {
+    height: auto !important;
+    display: flex;
+    flex-direction: column;
+  }
   .wsside { display: none !important; }
 
   /* Mobile side drawer */
@@ -243,6 +266,22 @@
   /* Mobile header */
   .mob-header { padding: 0 12px; height: var(--hh); }
   .mob-btn { width: 40px; height: 40px; border-radius: 10px; }
+
+  /* Fixed scroll container for phone */
+  #app {
+    height: 100dvh;
+    overflow: hidden;
+  }
+
+  #main {
+    height: calc(100dvh - var(--hh) - 66px) !important;
+    max-height: calc(100dvh - var(--hh) - 66px) !important;
+    min-height: auto !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-y: contain;
+  }
 
   /* Page padding */
   .pg, .pg-full {
