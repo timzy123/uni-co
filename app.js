@@ -703,6 +703,7 @@ window.go = async function go(page, data = {}) {
   else if (page === 'explore') await showExplore();
   else if (page === 'notifs') await showNotifs();
   else if (page === 'settings') await showSettings();
+  else if (page === 'invite') await showInvitePage();
   else if (page === 'ws') await showWorkspace(data.id);
 }
 
@@ -757,6 +758,7 @@ function renderShell() {
       ${ni('projects', 'My Projects', I.fo)}
       ${ni('explore', 'Explore', I.ex)}
       ${ni('notifs', 'Notifications', I.be, 'nbadge')}
+      ${ni('invite', 'Invite Friends', `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>`)}
       <div class="nsec" style="margin-top:8px">Account</div>
       ${ni('settings', 'Settings', I.se)}
     </nav>
@@ -1732,6 +1734,117 @@ async function showNotifs() {
         </div>`).join('')}
     </div>
   </div>`;
+}
+
+/* ── Invite Friends Page ─────────────────────────────────────────── */
+async function showInvitePage() {
+  if (demoGuard()) return;
+  const m = document.getElementById('main');
+  const signupUrl = `${window.location.origin}`;
+  const u = S.user;
+
+  const shareMsg = `Hey! I've been using uni-co for university project collaboration — tasks, files, chat, and department-specific tools all in one place. Join me here: ${signupUrl}`;
+
+  const canShare = !!navigator.share;
+
+  m.innerHTML = `<div class="pg stagger" style="max-width:560px">
+    <div class="ph"><h1>Invite to uni-co</h1></div>
+
+    <!-- Hero -->
+    <div class="card" style="text-align:center;padding:32px 24px;background:linear-gradient(135deg,var(--brand-bg) 0%,var(--bg2) 100%);border-color:var(--brand-bg)">
+      <div style="font-size:40px;margin-bottom:12px">👥</div>
+      <div style="font-size:18px;font-weight:700;color:var(--tx);margin-bottom:8px">Bring your team to uni-co</div>
+      <div style="font-size:14px;color:var(--tx2);line-height:1.6;max-width:380px;margin:0 auto">
+        Share the platform with classmates, labmates, or anyone collaborating on university work.
+      </div>
+    </div>
+
+    <!-- Signup link -->
+    <div class="card">
+      <div style="font-size:13px;font-weight:600;color:var(--tx);margin-bottom:10px">Platform link</div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <div style="flex:1;background:var(--bg2);border:1px solid var(--bor);border-radius:10px;padding:11px 14px;font-family:var(--mono);font-size:13px;color:var(--tx2);overflow:hidden;white-space:nowrap;text-overflow:ellipsis">${esc(signupUrl)}</div>
+        <button class="btn btn-primary" onclick="copyInviteLink()" id="copy-btn" style="flex-shrink:0;min-width:80px">Copy</button>
+      </div>
+      <div style="font-size:12px;color:var(--tx3);margin-top:8px">Anyone with this link can sign up for a free account.</div>
+    </div>
+
+    <!-- Share options -->
+    <div class="card">
+      <div style="font-size:13px;font-weight:600;color:var(--tx);margin-bottom:14px">Share via</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px">
+
+        ${canShare ? `
+        <button class="btn" onclick="nativeShare()" style="flex-direction:column;gap:6px;padding:14px 10px;height:auto;min-height:70px;align-items:center;justify-content:center;font-size:12px;font-weight:500">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+          Share
+        </button>` : ''}
+
+        <a href="mailto:?subject=Join me on uni-co&body=${encodeURIComponent(shareMsg)}" class="btn" style="flex-direction:column;gap:6px;padding:14px 10px;height:auto;min-height:70px;align-items:center;justify-content:center;font-size:12px;font-weight:500;text-decoration:none">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+          Email
+        </a>
+
+        <a href="https://wa.me/?text=${encodeURIComponent(shareMsg)}" target="_blank" rel="noopener" class="btn" style="flex-direction:column;gap:6px;padding:14px 10px;height:auto;min-height:70px;align-items:center;justify-content:center;font-size:12px;font-weight:500;text-decoration:none">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+          WhatsApp
+        </a>
+
+        <a href="https://t.me/share/url?url=${encodeURIComponent(signupUrl)}&text=${encodeURIComponent('Join me on uni-co — university collaboration platform')}" target="_blank" rel="noopener" class="btn" style="flex-direction:column;gap:6px;padding:14px 10px;height:auto;min-height:70px;align-items:center;justify-content:center;font-size:12px;font-weight:500;text-decoration:none">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+          Telegram
+        </a>
+
+        <button class="btn" onclick="copyShareMsg()" style="flex-direction:column;gap:6px;padding:14px 10px;height:auto;min-height:70px;align-items:center;justify-content:center;font-size:12px;font-weight:500">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          Copy message
+        </button>
+      </div>
+    </div>
+
+    <!-- What they get -->
+    <div class="card">
+      <div style="font-size:13px;font-weight:600;color:var(--tx);margin-bottom:14px">What your invite gets them</div>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        ${[
+          ['Free account', 'Sign up in under a minute — no payment required'],
+          ['Project collaboration', 'Join your projects with an invite key'],
+          ['Department tools', '12 specialised workstations for their subject'],
+          ['Tasks, files & chat', 'Everything needed for university group work'],
+        ].map(([title, desc]) => `
+          <div style="display:flex;gap:12px;align-items:flex-start">
+            <div style="width:20px;height:20px;border-radius:50%;background:var(--brand-bg);display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="var(--brand)" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
+            </div>
+            <div>
+              <div style="font-size:13px;font-weight:600;color:var(--tx)">${esc(title)}</div>
+              <div style="font-size:12px;color:var(--tx2);margin-top:1px">${esc(desc)}</div>
+            </div>
+          </div>`).join('')}
+      </div>
+    </div>
+  </div>`;
+
+  window.copyInviteLink = async () => {
+    try {
+      await navigator.clipboard.writeText(signupUrl);
+      const btn = document.getElementById('copy-btn');
+      if (btn) { btn.textContent = 'Copied!'; btn.style.background = 'var(--ok)'; setTimeout(() => { btn.textContent = 'Copy'; btn.style.background = ''; }, 2000); }
+    } catch { toast('Could not copy — please copy the link manually.', 'error'); }
+  };
+
+  window.copyShareMsg = async () => {
+    try {
+      await navigator.clipboard.writeText(shareMsg);
+      toast('Message copied to clipboard', 'success');
+    } catch { toast('Could not copy', 'error'); }
+  };
+
+  window.nativeShare = async () => {
+    try {
+      await navigator.share({ title: 'Join me on uni-co', text: shareMsg, url: signupUrl });
+    } catch(e) { if (e.name !== 'AbortError') toast('Share failed', 'error'); }
+  };
 }
 
 /* ── Settings (with Data Vault, Theme Picker, Glass, Permissions) ──── */
