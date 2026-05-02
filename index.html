@@ -121,7 +121,7 @@
   </div>
 
   <div class="ov" id="m-task-detail">
-    <div class="modal">
+    <div class="modal" style="max-width:520px;width:95vw">
       <div class="mh"><h3>Task Details</h3><button class="mclose" onclick="M.close('task-detail')">✕</button></div>
       <div class="mb">
         <div class="fg"><label class="fl" for="td-title">Title</label><input class="fi" id="td-title"></div>
@@ -131,6 +131,20 @@
           <div class="fg"><label class="fl" for="td-status">Status</label><select class="fi fi-select" id="td-status"><option value="TODO">To do</option><option value="IN_PROGRESS">In progress</option><option value="DONE">Done</option></select></div>
         </div>
         <div class="fg"><label class="fl" for="td-due">Due date</label><input class="fi" id="td-due" type="date"></div>
+
+        <!-- Task Comments -->
+        <div style="border-top:1px solid var(--bor);margin-top:8px;padding-top:12px">
+          <div style="font-size:12px;font-weight:600;color:var(--tx3);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px">💬 Comments</div>
+          <div id="td-comments" style="display:flex;flex-direction:column;gap:8px;max-height:160px;overflow-y:auto;margin-bottom:10px">
+            <div style="font-size:12px;color:var(--tx3);font-style:italic">Loading…</div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input id="td-comment-in" class="fi" placeholder="Add a comment…"
+              style="flex:1;padding:7px 12px;font-size:13px"
+              onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();submitTaskComment()}">
+            <button class="btn btn-primary btn-sm" onclick="submitTaskComment()">Send</button>
+          </div>
+        </div>
       </div>
       <div class="mf"><button class="btn btn-danger" onclick="deleteTask()">Delete</button><div style="flex:1"></div><button class="btn" onclick="M.close('task-detail')">Cancel</button><button class="btn btn-primary" onclick="saveTask()">Save</button></div>
     </div>
