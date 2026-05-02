@@ -2711,4 +2711,4 @@ input:checked + .tslider::before { transform: translateX(16px); }
   .tab:active { color: var(--brand); }
   * { -webkit-tap-highlight-color: rgba(91,82,200,0.10); }
   .btn, .fi, .tab, .setni, .ni, .mob-nav-item, .tkcard, .quiz-opt, .lbtn, .add-tk, .fcp { touch-action: manipulation; }
-}}
+}
