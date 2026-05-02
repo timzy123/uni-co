@@ -79,7 +79,8 @@
     height: auto !important;
     max-height: none !important;
     min-height: calc(100dvh - var(--hh) - 64px);
-    overflow-y: visible !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
     -webkit-overflow-scrolling: touch;
     overscroll-behavior-y: contain;
   }
@@ -199,7 +200,9 @@
   .setnav {
     flex-direction: row !important;
     flex-wrap: wrap;
-    position: static !important;
+    position: sticky !important;
+    top: 0;
+    z-index: 10;
     gap: 4px;
     background: var(--bg2);
     padding: 8px;
