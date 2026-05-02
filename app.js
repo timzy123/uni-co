@@ -560,10 +560,10 @@ const StorageEngine = (() => {
   };
 })();
 
-   //SECTION 2 — UI Framework
-   //State, Icons, Theme Engine, Toast System, FLIP Morphing Modals,
-   //Skeleton Loaders, Staggered Animations, Router, Shell, Auth,
-   //Dashboard, Projects, Explore, Notifications, Settings + Data Vault
+  // SECTION 2 — UI Framework
+  // State, Icons, Theme Engine, Toast System, FLIP Morphing Modals,
+  // Skeleton Loaders, Staggered Animations, Router, Shell, Auth,
+  // Dashboard, Projects, Explore, Notifications, Settings + Data Vault
 
 
 /* ── App State ──────────────────────────────────────────────────────── */
@@ -905,6 +905,7 @@ function showLogin() {
     </div>
     <button class="btn btn-primary btn-block btn-lg" onclick="doLogin()" id="lbtn">Sign in</button>
     <div class="authlink">No account? <a href="#" onclick="go('signup')">Create one</a></div>
+    <div class="authlink" style="margin-top:6px;font-size:11px;color:var(--tx3)">By using uni-co you agree to our <a href="/terms.pdf" target="_blank" style="color:var(--tx3)">Terms of Service</a></div>
   </div>
 </div>`;
   setTimeout(() => document.getElementById('lin-email')?.focus(), 80);
@@ -1272,6 +1273,7 @@ async function showSignup() {
     <div class="fg"><label class="fl" for="su-pw2">Confirm password</label><input class="fi" id="su-pw2" type="password" placeholder="Repeat password" onkeydown="if(event.key==='Enter')doSignup()"></div>
     <label class="fcheck" style="margin-bottom:16px"><input type="checkbox" id="su-terms"><span>I agree to the <a href="#">Terms of Service</a></span></label>
     <button class="btn btn-primary btn-block btn-lg" onclick="doSignup()" id="sbtn">Create account</button>
+    <div class="authlink" style="margin-top:8px;font-size:12px">By creating an account you agree to our <a href="/terms.pdf" target="_blank">Terms of Service</a></div>
     <div class="authlink">Already have an account? <a href="#" onclick="go('login')">Sign in</a></div>
   </div>
 </div>`;
@@ -1530,7 +1532,7 @@ async function leaveProj(id, title) {
     await go('projects');
   } catch(e) { toast(e.message, 'error'); }
 }
-{/* Archiving is a soft delete — it hides the project from the main list but retains all data and membership. */
+{/* Archiving is a soft delete — it hides the project from the main list and dashboard, but keeps all data intact and allows restoring later if needed. */
   if (!confirm('Archive this project? It will be hidden from your projects list.')) return;
   await StorageEngine.archiveProject(id);
   toast('Project archived', 'info');
