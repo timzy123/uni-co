@@ -560,7 +560,7 @@ const StorageEngine = (() => {
   };
 })();
 
-  /// SECTION 2 — UI Framework
+   //SECTION 2 — UI Framework
    //State, Icons, Theme Engine, Toast System, FLIP Morphing Modals,
    //Skeleton Loaders, Staggered Animations, Router, Shell, Auth,
    //Dashboard, Projects, Explore, Notifications, Settings + Data Vault
@@ -1486,9 +1486,17 @@ function pcrd(p) {
         <div onclick="go('ws',{id:'${p.id}'})" style="padding:9px 14px;font-size:13px;cursor:pointer;color:var(--tx)" onmouseover="this.style.background='var(--bg2)'" onmouseout="this.style.background=''">✏️ Open workspace</div>
         <div onclick="archiveProj('${p.id}')" style="padding:9px 14px;font-size:13px;cursor:pointer;color:var(--warn)" onmouseover="this.style.background='var(--warn-bg)'" onmouseout="this.style.background=''">📦 Archive project</div>
         <div style="height:1px;background:var(--bor)"></div>
+        <div onclick="leaveProj('${p.id}','${esc(p.title)}')" style="padding:9px 14px;font-size:13px;cursor:pointer;color:var(--tx2)" onmouseover="this.style.background='var(--bg2)'" onmouseout="this.style.background=''">Leave project</div>
         <div onclick="deleteProj('${p.id}','${esc(p.title)}')" style="padding:9px 14px;font-size:13px;cursor:pointer;color:var(--err)" onmouseover="this.style.background='var(--err-bg)'" onmouseout="this.style.background=''">🗑 Delete project</div>
       </div>
-    </div>` : ''}
+    </div>` : `<div style="position:absolute;top:12px;right:12px" onclick="event.stopPropagation()">
+      <div class="pcrd-menu-btn" onclick="togglePcrdMenu('menu-${p.id}')" title="Project options" style="width:26px;height:26px;border-radius:6px;display:flex;align-items:center;justify-content:center;color:var(--tx3);cursor:pointer;font-size:17px;line-height:1;background:var(--sur);border:1px solid var(--bor);transition:all 0.15s" onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background='var(--sur)'">⋯</div>
+      <div id="menu-${p.id}" style="display:none;position:absolute;top:30px;right:0;background:var(--sur);border:1px solid var(--bor);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,0.12);z-index:50;min-width:160px;overflow:hidden">
+        <div onclick="go('ws',{id:'${p.id}'})" style="padding:9px 14px;font-size:13px;cursor:pointer;color:var(--tx)" onmouseover="this.style.background='var(--bg2)'" onmouseout="this.style.background=''">Open workspace</div>
+        <div style="height:1px;background:var(--bor)"></div>
+        <div onclick="leaveProj('${p.id}','${esc(p.title)}')" style="padding:9px 14px;font-size:13px;cursor:pointer;color:var(--err)" onmouseover="this.style.background='var(--err-bg)'" onmouseout="this.style.background=''">Leave project</div>
+      </div>
+    </div>`}
   </div>`;
 }
 
@@ -1499,8 +1507,30 @@ function togglePcrdMenu(id) {
 }
 document.addEventListener('click', () => document.querySelectorAll('[id^="menu-"]').forEach(m => m.style.display = 'none'));
 
-async function archiveProj(id) {
+async function leaveProj(id, title) {
   if (demoGuard()) return;
+  const p = await StorageEngine.getProject(id);
+  const isLead = p?.members?.some(m => m.userId === S.user.id && m.role === 'LEAD');
+  if (isLead) {
+    const otherLeads = p.members.filter(m => m.role === 'LEAD' && m.userId !== S.user.id);
+    if (otherLeads.length === 0) {
+      toast('You are the only Lead. Transfer leadership to a member before leaving.', 'error');
+      return;
+    }
+  }
+  if (!confirm(`Leave "${title}"? You will lose access unless you are re-invited.`)) return;
+  try {
+    const mems = await StorageEngine.getAll('members', 'projectId', id);
+    const myMem = mems.find(m => m.userId === S.user.id);
+    if (myMem) await StorageEngine.del('members', myMem.id);
+    const perms = await StorageEngine.getAll('permissions', 'projectId', id);
+    const myPerm = perms.find(p => p.userId === S.user.id);
+    if (myPerm) await StorageEngine.del('permissions', myPerm.id);
+    toast('You have left the project.', 'success');
+    await go('projects');
+  } catch(e) { toast(e.message, 'error'); }
+}
+{/* Archiving is a soft delete — it hides the project from the main list but retains all data and membership. */
   if (!confirm('Archive this project? It will be hidden from your projects list.')) return;
   await StorageEngine.archiveProject(id);
   toast('Project archived', 'info');
@@ -2026,9 +2056,15 @@ async function showWorkspace(id) {
             <div onclick="showPermissionsAuditor('${p.id}')" style="padding:9px 14px;font-size:13px;cursor:pointer;color:var(--tx)" onmouseover="this.style.background='var(--bg2)'" onmouseout="this.style.background=''">🔐 Permissions</div>
             <div onclick="archiveProj('${p.id}')" style="padding:9px 14px;font-size:13px;cursor:pointer;color:var(--warn)" onmouseover="this.style.background='var(--warn-bg)'" onmouseout="this.style.background=''">📦 Archive</div>
             <div style="height:1px;background:var(--bor)"></div>
+            <div onclick="leaveProj('${p.id}','${esc(p.title)}')" style="padding:9px 14px;font-size:13px;cursor:pointer;color:var(--tx2)" onmouseover="this.style.background='var(--bg2)'" onmouseout="this.style.background=''">Leave project</div>
             <div onclick="deleteProj('${p.id}','${esc(p.title)}')" style="padding:9px 14px;font-size:13px;cursor:pointer;color:var(--err)" onmouseover="this.style.background='var(--err-bg)'" onmouseout="this.style.background=''">🗑 Delete project</div>
           </div>
-        </div>` : ''}
+        </div>` : `<div style="position:relative">
+          <button class="btn btn-ghost btn-sm" onclick="toggleWsMenu()" id="ws-menu-btn" style="font-size:18px;padding:4px 8px">⋯</button>
+          <div id="ws-menu" style="display:none;position:absolute;top:34px;right:0;background:var(--sur);border:1px solid var(--bor);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,0.13);z-index:50;min-width:170px;overflow:hidden">
+            <div onclick="leaveProj('${p.id}','${esc(p.title)}')" style="padding:9px 14px;font-size:13px;cursor:pointer;color:var(--err)" onmouseover="this.style.background='var(--err-bg)'" onmouseout="this.style.background=''">Leave project</div>
+          </div>
+        </div>`}
       </div>
     </div>
     <div class="wstabs">
@@ -2144,10 +2180,17 @@ function renderOverview(container, p) {
       <div style="font-size:13px;font-weight:700;color:var(--err);margin-bottom:12px">⚠ Danger zone</div>
       <div style="display:flex;gap:10px;flex-wrap:wrap">
         <button class="btn btn-sm" style="background:var(--warn-bg);color:var(--warn);border:1px solid var(--warn-bg)" onclick="archiveProj('${p.id}')">📦 Archive project</button>
+        <button class="btn btn-sm" style="background:var(--bg2);color:var(--tx2);border:1px solid var(--bor)" onclick="leaveProj('${p.id}','${esc(p.title)}')">Leave project</button>
         <button class="btn btn-sm btn-danger" onclick="deleteProj('${p.id}','${esc(p.title)}')">🗑 Delete project</button>
       </div>
-      <div style="font-size:11.5px;color:var(--tx3);margin-top:8px">Deleting is permanent and removes all tasks, files and messages.</div>
-    </div>` : ''}
+      <div style="font-size:11.5px;color:var(--tx3);margin-top:8px">Deleting is permanent and removes all tasks, files and messages. As Lead, transfer leadership before leaving.</div>
+    </div>` : `<div class="card" style="border-color:var(--err-bg)">
+      <div style="font-size:13px;font-weight:700;color:var(--err);margin-bottom:12px">⚠ Danger zone</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <button class="btn btn-sm" style="background:var(--err-bg);color:var(--err);border:1px solid var(--err-bg)" onclick="leaveProj('${p.id}','${esc(p.title)}')">Leave project</button>
+      </div>
+      <div style="font-size:11.5px;color:var(--tx3);margin-top:8px">You will lose access and will need to be re-invited to rejoin.</div>
+    </div>`}
   </div>`;
 }
 
