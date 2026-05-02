@@ -3,7 +3,7 @@
    App shell caching + push notification handling
 ═══════════════════════════════════════════════════════════════════ */
 
-const CACHE = 'uni-co-v2';
+const CACHE = 'uni-co-v3';
 
 const SHELL = [
   '/',
