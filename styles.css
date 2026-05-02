@@ -753,6 +753,7 @@ input, textarea, select { font-family: inherit; font-size: inherit; }
   line-height: 1.5;
   display: -webkit-box;
   -webkit-line-clamp: 2;
+  line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
   margin-bottom: 12px;
@@ -1996,19 +1997,31 @@ input:checked + .tslider::before { transform: translateX(16px); }
 /* ═══════════════════════════════════════════════════════
    RESPONSIVE — TABLET + MOBILE
 ═══════════════════════════════════════════════════════ */
-@media (max-width: 900px) {
-  :root { --sw: 0px; }
+/* ═══════════════════════════════════════════════════════════════════
+   RESPONSIVE — TABLET (≤900px) + MOBILE (≤600px) + SMALL (≤400px)
+   Mobile-first: touch targets ≥44px, safe-area insets, smooth scroll,
+   no horizontal overflow, bottom-nav safe zone, readable type scale.
+═══════════════════════════════════════════════════════════════════ */
 
-  /* Sidebar slides off-screen on mobile, toggled by JS */
+/* ── Tablet & large mobile ─────────────────────────────────────── */
+@media (max-width: 900px) {
+  :root {
+    --sw: 0px;
+    --hh: 54px;
+  }
+
+  /* Sidebar: off-canvas drawer */
   .sidebar {
     position: fixed;
     top: 0; left: 0;
-    width: 260px;
+    width: min(280px, 85vw);
     height: 100dvh;
-    transform: translateX(-280px);
+    transform: translateX(-105%);
     z-index: 200;
     box-shadow: none;
-    transition: transform 0.28s cubic-bezier(0.4,0,0.2,1), background 0.3s;
+    transition: transform 0.28s cubic-bezier(0.4,0,0.2,1);
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
   }
   .sidebar.open {
     transform: translateX(0);
@@ -2018,70 +2031,259 @@ input:checked + .tslider::before { transform: translateX(16px); }
   .mob-header { display: flex; }
   #mob-nav { display: block !important; }
 
+  /* Main layout: single column */
   #app { grid-template-columns: 1fr; }
-  /* account for mobile header + bottom nav */
   #main {
-    height: calc(100dvh - var(--hh) - 62px);
-    max-height: calc(100dvh - var(--hh) - 62px);
+    height: calc(100dvh - var(--hh) - 58px - env(safe-area-inset-bottom, 0px));
+    max-height: calc(100dvh - var(--hh) - 58px - env(safe-area-inset-bottom, 0px));
     overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-y: contain;
   }
 
-  /* Workspace: full width, no side panel */
+  /* Workspace */
   .wsbody { grid-template-columns: 1fr; }
   .wsside { display: none; }
-  .ws { height: calc(100dvh - var(--hh) - 62px - 56px); }
+  .ws { height: calc(100dvh - var(--hh) - 58px - 52px - env(safe-area-inset-bottom, 0px)); }
 
-  /* Kanban: single column on tablet, horizontal scroll on mobile */
+  /* Kanban: 2-col on tablet */
   .kanban { grid-template-columns: 1fr 1fr; gap: 10px; }
 
-  /* Settings: stack nav on top */
+  /* Settings: stacked */
   .setlayout { grid-template-columns: 1fr; gap: 12px; }
-  .setnav { flex-direction: row; flex-wrap: wrap; position: static; }
-  .setni { flex: 1; min-width: 80px; justify-content: center; font-size: 12px; padding: 7px 8px; }
+  .setnav {
+    flex-direction: row;
+    flex-wrap: wrap;
+    position: static;
+    gap: 6px;
+  }
+  .setni {
+    flex: 1;
+    min-width: 80px;
+    justify-content: center;
+    font-size: 12px;
+    padding: 8px 6px;
+    min-height: 44px;
+  }
 
+  /* Stats grid */
   .stats { grid-template-columns: 1fr 1fr; }
   .frow-2 { grid-template-columns: 1fr; }
-  .pg, .pg-full { padding: 16px 14px; }
+
+  /* Page padding */
+  .pg, .pg-full {
+    padding: 16px 14px calc(16px + 58px + env(safe-area-inset-bottom, 0px));
+  }
+
+  /* Bigger touch targets for nav items */
+  .ni {
+    min-height: 44px;
+    padding: 10px 12px;
+  }
+
+  /* Cards: full width */
+  .pgrid { grid-template-columns: 1fr; }
+
+  /* Explore grid */
+  .explore-grid { grid-template-columns: 1fr; }
+
+  /* Task cards: easier to tap */
+  .tkcard { padding: 12px 14px; min-height: 56px; }
+
+  /* Invite key: wrap on small screens */
+  .inv-key { word-break: break-all; }
 }
 
+/* ── Phone (≤600px) ──────────────────────────────────────────────── */
 @media (max-width: 600px) {
-  /* Single column kanban on phone */
+  :root { --hh: 52px; }
+
+  /* Bottom nav: taller, safe-area aware */
+  #mob-nav {
+    padding-bottom: max(8px, env(safe-area-inset-bottom, 8px));
+  }
+  .mob-nav-item {
+    padding: 8px 6px 4px;
+    min-width: 52px;
+    min-height: 48px;
+    font-size: 9.5px;
+    gap: 2px;
+  }
+  .mob-nav-item svg { width: 22px; height: 22px; }
+
+  /* Mobile header */
+  .mob-header {
+    padding: 0 12px;
+    height: var(--hh);
+  }
+  .mob-btn {
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+  }
+
+  /* Kanban: horizontal scroll on phone */
   .kanban {
     display: flex;
     flex-direction: row;
     overflow-x: auto;
     gap: 10px;
     padding-bottom: 8px;
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
   }
   .kanban::-webkit-scrollbar { display: none; }
-  .kcol { min-width: 260px; flex-shrink: 0; }
+  .kcol {
+    min-width: 280px;
+    flex-shrink: 0;
+    scroll-snap-align: start;
+  }
 
-  .pgrid { grid-template-columns: 1fr; }
-  .tab { padding: 9px 10px; font-size: 12px; }
-  .authcard { padding: 24px 16px; }
-  .stats { grid-template-columns: 1fr 1fr; }
-  .ph h1 { font-size: 18px; }
-  .ph { flex-direction: column; align-items: flex-start; }
-  .ph-right { width: 100%; }
+  /* Workspace tabs: horizontal scroll */
+  .wstabs {
+    padding: 0 10px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+    scroll-snap-type: x proximity;
+  }
+  .wstabs::-webkit-scrollbar { display: none; }
+  .tab {
+    white-space: nowrap;
+    padding: 10px 12px;
+    font-size: 12.5px;
+    min-height: 44px;
+    flex-shrink: 0;
+    scroll-snap-align: start;
+  }
 
-  /* Auth page full width on phone */
-  .authpg { padding: 12px; }
-  .authcard { border-radius: 16px; }
+  /* Workspace header */
+  .wsh {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 10px 12px;
+  }
+  .wsh h2 { font-size: 15px; }
 
-  /* Workspace tabs scroll horizontally */
-  .wstabs { padding: 0 10px; }
-  .tab { white-space: nowrap; }
+  /* Page header */
+  .ph {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+  .ph h1 { font-size: 19px; }
+  .ph-right, .ph > div:last-child { width: 100%; }
+  .ph button, .ph-right button {
+    width: 100%;
+    justify-content: center;
+    min-height: 44px;
+  }
 
-  /* Workspace header stacks */
-  .wsh { flex-wrap: wrap; gap: 8px; padding: 12px 14px; }
+  /* Auth */
+  .authpg { padding: 12px 10px; align-items: flex-start; padding-top: 24px; }
+  .authcard {
+    padding: 24px 16px 28px;
+    border-radius: 20px;
+    width: 100%;
+    max-width: 100%;
+  }
 
-  /* Modal full screen on phone */
-  .modal { border-radius: 20px 20px 0 0; max-width: 100%; position: fixed; bottom: 0; left: 0; right: 0; margin: 0; max-height: 90dvh; }
+  /* Modals: bottom sheet */
   .ov { align-items: flex-end; padding: 0; }
+  .modal {
+    border-radius: 22px 22px 0 0;
+    max-width: 100%;
+    width: 100%;
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    margin: 0;
+    max-height: 92dvh;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  .mh { padding: 18px 18px 12px; }
+  .mb { padding: 0 18px; }
+  .mf { padding: 14px 18px calc(14px + env(safe-area-inset-bottom, 0px)); }
 
-  .pg, .pg-full { padding: 14px 12px 80px; } /* bottom padding for nav */
+  /* Buttons: minimum touch target */
+  .btn { min-height: 40px; }
+  .btn-lg { min-height: 48px; font-size: 15px; }
+
+  /* Form inputs */
+  .fi { min-height: 44px; font-size: 16px !important; } /* 16px prevents iOS zoom */
+  .fi-select { min-height: 44px; font-size: 16px !important; }
+  .fi-ta { font-size: 16px !important; }
+
+  /* Stats: 2 col */
+  .stats { grid-template-columns: 1fr 1fr; gap: 8px; }
+
+  /* Page padding with bottom nav safe zone */
+  .pg, .pg-full {
+    padding: 14px 12px calc(72px + env(safe-area-inset-bottom, 0px));
+  }
+
+  /* Overview grid: single col */
+  .overview-grid { grid-template-columns: 1fr !important; }
+
+  /* Project cards */
+  .pgrid { grid-template-columns: 1fr; gap: 10px; }
+  .pcard { padding: 16px 14px; }
+
+  /* Settings nav: 2-per-row */
+  .setni { min-width: 70px; font-size: 11px; }
+
+  /* Notification items */
+  .notif-item { padding: 12px 14px; }
+
+  /* Chat input bar */
+  .chat-bar { padding: 8px 10px; gap: 6px; }
+  .chat-bar input { font-size: 16px !important; min-height: 40px; }
+  .chat-bar button { min-width: 40px; min-height: 40px; }
+
+  /* File upload area */
+  .dropzone { padding: 24px 16px; }
+
+  /* Overflow fix — nothing should cause horizontal scroll */
+  #main, .pg, .pg-full, .wsbody { max-width: 100vw; overflow-x: hidden; }
+
+  /* Quiz: stack options */
+  .quiz-opts { flex-direction: column; }
 }
+
+/* ── Small phones (≤400px) ────────────────────────────────────────── */
+@media (max-width: 400px) {
+  .mob-nav-item {
+    min-width: 42px;
+    padding: 8px 4px 4px;
+    font-size: 9px;
+  }
+  .mob-nav-item svg { width: 20px; height: 20px; }
+  .ph h1 { font-size: 17px; }
+  .authcard { padding: 20px 14px 24px; }
+  .tab { padding: 9px 10px; font-size: 12px; }
+  .pg, .pg-full { padding: 12px 10px calc(70px + env(safe-area-inset-bottom, 0px)); }
+  .stats { grid-template-columns: 1fr 1fr; gap: 6px; }
+}
+
+/* ── Touch device global improvements ────────────────────────────── */
+@media (hover: none) and (pointer: coarse) {
+  /* Remove hover states that feel broken on touch */
+  .btn:hover { transform: none; }
+  .ni:hover { background: transparent; }
+  .ni.on { background: var(--brand-bg); }
+
+  /* Improve tap highlight */
+  * { -webkit-tap-highlight-color: rgba(83,74,183,0.12); }
+
+  /* Active state feedback instead */
+  .btn:active { transform: scale(0.97); opacity: 0.9; }
+  .ni:active { background: var(--bg3); }
+  .mob-nav-item:active { opacity: 0.7; transform: scale(0.94); }
+  .pcard:active { transform: scale(0.99); }
+  .tkcard:active { transform: scale(0.99); }
+}
+
+
 
 /* ═══════════════════════════════════════════════════════════════════
    NEON-SPECIFIC OVERRIDES
