@@ -1,0 +1,10 @@
+# Don't commit your real credentials
+config.js
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/

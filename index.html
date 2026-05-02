@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>uni-co — University Collaboration Platform</title>
+  <!-- Security headers (supplement server-side headers) -->
+  <meta http-equiv="X-Content-Type-Options" content="nosniff">
+  <meta http-equiv="X-Frame-Options" content="DENY">
+  <meta http-equiv="Referrer-Policy" content="strict-origin-when-cross-origin">
+  <meta http-equiv="Permissions-Policy" content="camera=(), microphone=(), geolocation=()">
+
+  <script>
+    try {
+      var t = localStorage.getItem('uc-theme') || 'light';
+      document.documentElement.setAttribute('data-theme', t);
+    } catch(e) {}
+  </script>
+
+  <!-- Non-blocking fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+
+  <!-- Inline critical styles so spinner works before styles.css loads -->
+  <style>
+    @keyframes spin { to { transform: rotate(360deg); } }
+    html,body{margin:0;padding:0;background:#fff;}
+    [data-theme=dark] body{background:#0F0E1A;}
+    #boot-wrap{display:flex;align-items:center;justify-content:center;height:100vh;flex-direction:column;gap:14px;font-family:-apple-system,sans-serif;}
+    #boot-logo{font-size:26px;font-weight:700;color:#0F0E1A;}
+    #boot-logo span{color:#534AB7;}
+    [data-theme=dark] #boot-logo{color:#F0EFF8;}
+    #boot-spinner{width:28px;height:28px;border:3px solid #534AB7;border-top-color:transparent;border-radius:50%;animation:spin 1s linear infinite;}
+    #boot-msg{font-size:13px;color:#8E8BAD;}
+    #boot-error{display:none;background:#FDEDEC;border:1px solid #C0392B;border-radius:12px;padding:20px 24px;max-width:340px;margin:20px;font-family:-apple-system,sans-serif;}
+    #boot-error h3{color:#C0392B;margin:0 0 8px;font-size:15px;}
+    #boot-error p{color:#333;font-size:13px;line-height:1.6;margin:0;}
+  </style>
+
+  <link rel="stylesheet" href="styles.css">
+
+  <!-- Supabase JS client (loaded before app.js so StorageEngine can use it) -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+</head>
+<body>
+  <div id="root">
+    <div id="boot-wrap">
+      <div id="boot-logo"><span>uni</span>-co</div>
+      <div id="boot-spinner"></div>
+      <div id="boot-msg">Connecting to uni-co…</div>
+    </div>
+    <div id="boot-error">
+      <h3>⚠️ Could not start</h3>
+      <p id="boot-error-msg">An error occurred.</p>
+    </div>
+  </div>
+
+  <!-- No warn-banner needed — Supabase always works cross-device -->
+  <div id="warn-banner" style="display:none"></div>
+
+  <!-- Mobile bottom navigation — rendered by renderShell() in app.js -->
+  <div id="mob-nav-placeholder"></div>
+
+  <!-- Modals -->
+  <div class="ov" id="m-new-project">
+    <div class="modal">
+      <div class="mh"><h3>New Project</h3><button class="mclose" onclick="M.close('new-project')">✕</button></div>
+      <div class="mb">
+        <div class="fg"><label class="fl" for="np-title">Title *</label><input class="fi" id="np-title" placeholder="Project title"></div>
+        <div class="fg"><label class="fl" for="np-desc">Description</label><textarea class="fi fi-ta" id="np-desc" rows="2" placeholder="Brief description..."></textarea></div>
+        <div class="fg"><label class="fl" for="np-dept">Department *</label><select class="fi fi-select" id="np-dept"></select></div>
+        <div class="fg"><label class="fl" for="np-due">Due date</label><input class="fi" id="np-due" type="date"></div>
+        <div class="frow">
+          <label class="fcheck"><input type="checkbox" id="np-open"><span>Open collaboration</span></label>
+        </div>
+        <div class="fg"><label class="fl" for="np-keytype">Invite key type</label><select class="fi fi-select" id="np-keytype"><option value="MULTI_USE">Multi-use</option><option value="SINGLE_USE">Single-use</option></select></div>
+      </div>
+      <div class="mf"><button class="btn" onclick="M.close('new-project')">Cancel</button><button class="btn btn-primary" onclick="submitNewProject()">Create</button></div>
+    </div>
+  </div>
+
+  <div class="ov" id="m-join-key">
+    <div class="modal">
+      <div class="mh"><h3>Join with Key</h3><button class="mclose" onclick="M.close('join-key')">✕</button></div>
+      <div class="mb">
+        <div class="fg"><label class="fl" for="jk-input">Invite key</label><input class="fi" id="jk-input" placeholder="e.g. PROJ-7K2M"></div>
+        <div class="fe" id="jk-err" style="color:var(--err);font-size:12px;display:none"></div>
+      </div>
+      <div class="mf"><button class="btn" onclick="M.close('join-key')">Cancel</button><button class="btn btn-primary" onclick="submitJoinKey()">Join</button></div>
+    </div>
+  </div>
+
+  <div class="ov" id="m-new-task">
+    <div class="modal">
+      <div class="mh"><h3>New Task</h3><button class="mclose" onclick="M.close('new-task')">✕</button></div>
+      <div class="mb">
+        <div class="fg"><label class="fl" for="nt-title">Title *</label><input class="fi" id="nt-title" placeholder="Task title"></div>
+        <div class="fg"><label class="fl" for="nt-desc">Description</label><textarea class="fi fi-ta" id="nt-desc" rows="2" placeholder="Details..."></textarea></div>
+        <div class="frow">
+          <div class="fg"><label class="fl" for="nt-priority">Priority</label><select class="fi fi-select" id="nt-priority"><option value="HIGH">High</option><option value="MEDIUM" selected>Medium</option><option value="LOW">Low</option></select></div>
+          <div class="fg"><label class="fl" for="nt-status">Status</label><select class="fi fi-select" id="nt-status"><option value="TODO">To do</option><option value="IN_PROGRESS">In progress</option><option value="DONE">Done</option></select></div>
+        </div>
+        <div class="fg"><label class="fl" for="nt-due">Due date</label><input class="fi" id="nt-due" type="date"></div>
+      </div>
+      <div class="mf"><button class="btn" onclick="M.close('new-task')">Cancel</button><button class="btn btn-primary" onclick="submitTask()">Add Task</button></div>
+    </div>
+  </div>
+
+  <div class="ov" id="m-task-detail">
+    <div class="modal">
+      <div class="mh"><h3>Task Details</h3><button class="mclose" onclick="M.close('task-detail')">✕</button></div>
+      <div class="mb">
+        <div class="fg"><label class="fl" for="td-title">Title</label><input class="fi" id="td-title"></div>
+        <div class="fg"><label class="fl" for="td-desc">Description</label><textarea class="fi fi-ta" id="td-desc" rows="2"></textarea></div>
+        <div class="frow">
+          <div class="fg"><label class="fl" for="td-priority">Priority</label><select class="fi fi-select" id="td-priority"><option value="HIGH">High</option><option value="MEDIUM">Medium</option><option value="LOW">Low</option></select></div>
+          <div class="fg"><label class="fl" for="td-status">Status</label><select class="fi fi-select" id="td-status"><option value="TODO">To do</option><option value="IN_PROGRESS">In progress</option><option value="DONE">Done</option></select></div>
+        </div>
+        <div class="fg"><label class="fl" for="td-due">Due date</label><input class="fi" id="td-due" type="date"></div>
+      </div>
+      <div class="mf"><button class="btn btn-danger" onclick="deleteTask()">Delete</button><div style="flex:1"></div><button class="btn" onclick="M.close('task-detail')">Cancel</button><button class="btn btn-primary" onclick="saveTask()">Save</button></div>
+    </div>
+  </div>
+
+  <div id="toasts"></div>
+
+  <script>
+    function showBootError(msg) {
+      var w = document.getElementById('boot-wrap');
+      var e = document.getElementById('boot-error');
+      var m = document.getElementById('boot-error-msg');
+      if (w) w.style.display = 'none';
+      if (e) e.style.display = 'block';
+      if (m) m.innerHTML = msg;
+    }
+
+    window.onerror = function(msg, src, line) {
+      showBootError(
+        '<strong>JS Error:</strong> ' + msg +
+        '<br><br><strong>Tip:</strong> Check that SUPABASE_URL and SUPABASE_ANON_KEY are set in <code>config.js</code>.<br>' +
+        '<small>(' + (src||'') + ':' + (line||'?') + ')</small>'
+      );
+      return false;
+    };
+
+    window.addEventListener('unhandledrejection', function(e) {
+      showBootError(
+        '<strong>Startup error:</strong> ' + (e.reason && e.reason.message ? e.reason.message : String(e.reason)) +
+        '<br><br><strong>Common causes:</strong><br>' +
+        '• Missing or wrong Supabase credentials in config.js<br>' +
+        '• Supabase project paused (free tier auto-pauses after 7 days inactive)<br>' +
+        '• Network / CORS issue<br>'
+      );
+    });
+  </script>
+
+  <!-- Your Supabase credentials — fill in before deploying -->
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
