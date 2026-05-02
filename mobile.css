@@ -74,10 +74,11 @@
 
   /* Layout */
   #app { grid-template-columns: 1fr !important; }
+  /* Let #main grow naturally — fixed height clips content behind the nav */
   #main {
-    height: calc(100dvh - 54px - 60px - env(safe-area-inset-bottom, 0px));
-    max-height: calc(100dvh - 54px - 60px - env(safe-area-inset-bottom, 0px));
-    overflow-y: auto;
+    height: auto !important;
+    max-height: none !important;
+    overflow-y: visible !important;
     -webkit-overflow-scrolling: touch;
     overscroll-behavior-y: contain;
   }
@@ -194,9 +195,9 @@
     border-radius: var(--r);
   }
 
-  /* Page padding */
+  /* Page padding — extra bottom so content clears the fixed nav bar */
   .pg, .pg-full {
-    padding: 16px 14px calc(16px + 64px + env(safe-area-inset-bottom, 0px));
+    padding: 16px 14px calc(90px + env(safe-area-inset-bottom, 0px));
   }
 
   /* Form rows */
@@ -221,7 +222,7 @@
 
   /* Page padding */
   .pg, .pg-full {
-    padding: 14px 12px calc(72px + env(safe-area-inset-bottom, 0px));
+    padding: 14px 12px calc(96px + env(safe-area-inset-bottom, 0px));
   }
 
   /* Auth */
@@ -447,7 +448,7 @@
   .ph h1 { font-size: 17px; }
   .authcard { padding: 18px 12px 22px; }
   .tab { padding: 9px 10px; font-size: 12px; }
-  .pg, .pg-full { padding: 12px 10px calc(70px + env(safe-area-inset-bottom, 0px)); }
+  .pg, .pg-full { padding: 12px 10px calc(96px + env(safe-area-inset-bottom, 0px)); }
   .stats { grid-template-columns: 1fr 1fr !important; gap: 6px !important; }
   .stat-val { font-size: 22px; }
   .setni { font-size: 10px; min-width: 52px; }
