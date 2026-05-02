@@ -2327,6 +2327,17 @@ function renderOverview(container, p) {
       </div>
     </div>
 
+    <!-- Invite key (mobile only — desktop sees this in the side panel) -->
+    ${window.innerWidth <= 900 && p._myPerms?.canInvite && p.inviteKey ? `<div class=\"card mob-key-card\">
+      <div style=\"font-size:12px;font-weight:700;color:var(--tx3);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:10px\">Invite key</div>
+      <div class=\"keybox\">
+        <span class=\"keycode\">${p.inviteKey.keyCode}</span>
+        <button class=\"btn btn-ghost btn-sm\" onclick=\"navigator.clipboard.writeText('${p.inviteKey.keyCode}').then(()=>toast('Key copied!','success'))\">${I.cp}</button>
+      </div>
+      <div class=\"keymeta\" style=\"margin-top:6px\">${p.inviteKey.keyType === 'MULTI_USE' ? 'Multi-use' : 'Single-use'} · ${p.inviteKey.usedCount} used</div>
+      ${isLead ? `<button class=\"btn btn-ghost btn-sm btn-block\" style=\"margin-top:8px;color:var(--tx2)\" onclick=\"regenKey('${p.id}')\">${I.rf} Regenerate</button>` : ''}
+    </div>` : ''}
+
     <!-- Progress -->
     <div class="card">
       <div style="font-size:13px;font-weight:600;margin-bottom:10px">Progress</div>
