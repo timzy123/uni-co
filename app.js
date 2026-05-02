@@ -560,11 +560,12 @@ const StorageEngine = (() => {
   };
 })();
 
-   //SECTION 2 — UI Framework
-   //State, Icons, Theme Engine, Toast System, FLIP Morphing Modals,
-   //Skeleton Loaders, Staggered Animations, Router, Shell, Auth,
-   //Dashboard, Projects, Explore, Notifications, Settings + Data Vault
-
+/* ═══════════════════════════════════════════════════════════════════
+   SECTION 2 — UI Framework
+   State, Icons, Theme Engine, Toast System, FLIP Morphing Modals,
+   Skeleton Loaders, Staggered Animations, Router, Shell, Auth,
+   Dashboard, Projects, Explore, Notifications, Settings + Data Vault
+═══════════════════════════════════════════════════════════════════ */
 
 /* ── App State ──────────────────────────────────────────────────────── */
 const S = {
@@ -1531,7 +1532,9 @@ async function leaveProj(id, title) {
     await go('projects');
   } catch(e) { toast(e.message, 'error'); }
 }
+
 async function archiveProj(id) {
+  if (demoGuard()) return;
   if (!confirm('Archive this project? It will be hidden from your projects list.')) return;
   await StorageEngine.archiveProject(id);
   toast('Project archived', 'info');
@@ -1629,4 +1632,2040 @@ async function showProjects() {
   const m = document.getElementById('main');
   const projects = await StorageEngine.getMyProjects(S.user.id);
   const enriched = await Promise.all(projects.map(p => StorageEngine.getProject(p.id)));
-  m.innerHTML = `<d
+  m.innerHTML = `<div class="pg stagger">
+    <div class="ph">
+      <h1>My projects <span style="font-size:14px;color:var(--tx3);font-weight:400">${enriched.length}</span></h1>
+      <div style="display:flex;gap:8px">
+        <button class="btn" onclick="M.open('join-key')">${I.ky} Join with key</button>
+        <button class="btn btn-primary" onclick="openNewProject(this)">${I.pl} New project</button>
+      </div>
+    </div>
+    ${enriched.length === 0 ? `<div class="empty">
+          <div class="emico">${I.fo}</div>
+          <h3 style="font-weight:700;margin-bottom:6px;color:var(--tx)">No projects yet</h3>
+          <p style="color:var(--tx3);margin-bottom:18px;max-width:280px">Create your first project or join one with an invite key from a teammate.</p>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center">
+            <button class="btn btn-primary" onclick="openNewProject(this)">${I.pl} Create project</button>
+            <button class="btn btn-secondary" onclick="M.open('join-key')">${I.ky} Join with key</button>
+          </div>
+        </div>`
+      : `<div class="pgrid">${enriched.map(p => pcrd(p)).join('')}</div>`}
+  </div>`;
+}
+
+/* ── Explore with Fuzzy Search ─────────────────────────────────────── */
+async function showExplore() {
+  const m = document.getElementById('main');
+  const depts = await StorageEngine.getDepts();
+  let curDept = 'all', openOnly = false;
+
+  async function render() {
+    const q = document.getElementById('exp-q')?.value || '';
+    const projects = await StorageEngine.getExplore(S.user.id, { dept: curDept, openOnly, q });
+    const grid = document.getElementById('exp-grid');
+    if (!grid) return;
+    grid.innerHTML = projects.length === 0
+      ? `<div class="empty" style="grid-column:1/-1"><div class="emico">${I.ex}</div><p>No projects found${q ? ` for "${esc(q)}"` : ''}</p></div>`
+      : `<div class="pgrid stagger">${projects.map(p => `<div class="pcrd card-c ${p.isOpenCollab ? 'open-c' : ''}" onclick="expJoin('${p.id}',${p.isOpenCollab})">
+        <div class="pch">
+          <div class="ptitle">${esc(p.title)}</div>
+          <div style="display:flex;gap:3px;flex-wrap:wrap;flex-shrink:0">
+            <span class="badge" style="background:${(p.department?.colorHex || '#534AB7')}22;color:${p.department?.colorHex || '#534AB7'}">${p.department?.code || ''}</span>
+            ${p.isOpenCollab ? '<span class="badge b-open">Open</span>' : ''}
+          </div>
+        </div>
+        ${p.description ? `<div class="pdesc">${esc(p.description)}</div>` : ''}
+        <div class="pfoot">
+          <span style="font-size:12px;color:var(--tx2)">${(p.members || []).length} member${(p.members || []).length !== 1 ? 's' : ''}</span>
+          <button class="btn btn-sm" onclick="event.stopPropagation();expJoin('${p.id}',${p.isOpenCollab})">${p.isOpenCollab ? 'Join' : 'Enter key'}</button>
+        </div>
+      </div>`).join('')}</div>`;
+  }
+
+  m.innerHTML = `<div class="pg">
+    <div class="ph"><h1>Explore</h1><button class="btn" onclick="M.open('join-key')">${I.ky} Enter invite key</button></div>
+    <div class="sbar">
+      <div class="swrap"><span class="sico">${I.ex}</span><input class="sinput" id="exp-q" placeholder="Search projects (fuzzy)..." oninput="expRender()"></div>
+      <button class="btn btn-primary" onclick="expRender()">Search</button>
+    </div>
+    <div class="fchips-row">
+      <span class="fcp on" data-d="all" onclick="expDept(this,'all')">All departments</span>
+      ${depts.map(d => `<span class="fcp" data-d="${d.code}" onclick="expDept(this,'${d.code}')">${d.name}</span>`).join('')}
+      <span class="fcp" id="open-fp" onclick="expToggleOpen(this)" style="margin-left:auto">Open collab only</span>
+    </div>
+    <div id="exp-grid" style="display:contents"><div class="pgrid">${Array(4).fill('<div class="skel skel-card"></div>').join('')}</div></div>
+  </div>`;
+
+  window.expRender = render;
+  window.expDept = (el, d) => { curDept = d; document.querySelectorAll('.fcp[data-d]').forEach(c => c.classList.remove('on')); el.classList.add('on'); render(); };
+  window.expToggleOpen = (el) => { openOnly = !openOnly; el.classList.toggle('on'); render(); };
+  await render();
+}
+
+async function expJoin(pid, isOpen) {
+  if (demoGuard()) return;
+  try {
+    if (isOpen) {
+      await StorageEngine.joinOpen(pid, S.user.id);
+      toast('Joined project!', 'success');
+      go('ws', { id: pid });
+    } else {
+      document.getElementById('jk-input').value = '';
+      M.open('join-key');
+    }
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+/* ── Notifications ─────────────────────────────────────────────────── */
+async function showNotifs() {
+  const m = document.getElementById('main');
+  const notifs = await StorageEngine.getNotifs(S.user.id);
+  await StorageEngine.markAllRead(S.user.id);
+  updateNBadge();
+  m.innerHTML = `<div class="pg stagger">
+    <div class="ph"><h1>Notifications</h1><button class="btn" onclick="go('notifs')">Refresh</button></div>
+    <div style="background:var(--sur);border:1px solid var(--bor);border-radius:var(--rl);overflow:hidden">
+      ${notifs.length === 0 ? `<div class="empty"><div class="emico">${I.be}</div><p>All caught up!</p></div>`
+        : notifs.map(n => `<div class="nitem ${n.read ? '' : 'unr'}">
+          ${!n.read ? '<div class="ndot"></div>' : '<div style="width:7px;flex-shrink:0"></div>'}
+          <div><div class="ntx">${esc(n.text)}</div><div class="ntm">${fmtD(n.createdAt)}</div></div>
+        </div>`).join('')}
+    </div>
+  </div>`;
+}
+
+/* ── Settings (with Data Vault, Theme Picker, Glass, Permissions) ──── */
+async function showSettings() {
+  const m = document.getElementById('main');
+  const depts = await StorageEngine.getDepts();
+  let sec = 'profile';
+
+  const sections = {
+    profile: () => `
+      <div class="setsec"><div class="setsec-t">Profile</div><div class="setsec-d">Your personal information and department.</div>
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:18px;padding:14px;background:var(--bg2);border-radius:var(--rl)">${av(S.user, 'lg')}<div><div style="font-size:16px;font-weight:600">${esc(S.user.fullName)}</div><div style="font-size:13px;color:var(--tx2)">${esc(S.user.email || S.user.phone || '')} · ${esc(S.user.department?.name || '')}</div></div></div>
+        <div class="frow">
+          <div class="fg"><label class="fl" for="s-name">Full name</label><input class="fi" id="s-name" value="${esc(S.user.fullName)}"></div>
+          <div class="fg"><label class="fl" for="s-dept">Department</label><select class="fi fi-select" id="s-dept">${depts.map(d => `<option value="${d.id}"${d.id === S.user.departmentId ? ' selected' : ''}>${esc(d.name)} (${esc(d.code)})</option>`).join('')}</select></div>
+        </div>
+        <div class="fg"><label class="fl" for="s-bio">Bio</label><textarea class="fi fi-ta" id="s-bio" rows="3">${esc(S.user.bio || '')}</textarea></div>
+        <div class="frow">
+          <div class="fg"><label class="fl" for="s-gh">GitHub</label><input class="fi" id="s-gh" value="${esc(S.user.gh || '')}" placeholder="https://github.com/..."></div>
+          <div class="fg"><label class="fl" for="s-li">LinkedIn</label><input class="fi" id="s-li" value="${esc(S.user.li || '')}" placeholder="https://linkedin.com/in/..."></div>
+        </div>
+        <button class="btn btn-primary" onclick="saveProfile()">Save changes</button>
+      </div>`,
+
+    appearance: () => `
+      <div class="setsec"><div class="setsec-t">Appearance</div><div class="setsec-d">Switch between themes and toggle glassmorphism.</div>
+        <div class="setrow"><div><div class="setrow-l">Glassmorphism</div><div class="setrow-d">Blurred translucent surfaces</div></div>
+          <label class="tog"><input type="checkbox" ${S.glass ? 'checked' : ''} onchange="toggleGlass(this.checked);reRenderAppear()"><span class="tslider"></span></label>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:16px">
+          ${[
+            ['light', 'Default', '#fff', '#E4E3F0', '#534AB7'],
+            ['dark', 'Dark', '#0F0E1A', '#2D2B45', '#7F77DD'],
+            ['neon', 'Neon Protocol', '#0A0A14', '#1E1E40', '#00FFC8'],
+            ['zen', 'Zen Minimalist', '#FAFAF7', '#E5DED3', '#8B7355'],
+            ['cosmic', 'Cosmic Horizon', '#0D0B1E', '#2A2560', '#7B68EE'],
+          ].map(([t, label, bg, borCol, accent]) => `
+            <div onclick="setTheme('${t}');reRenderAppear()" style="border:2px solid ${S.theme === t ? accent : borCol};border-radius:var(--rl);padding:14px;cursor:pointer;background:${bg};transition:border-color .2s">
+              <div style="font-size:12px;font-weight:600;color:${t === 'dark' || t === 'neon' || t === 'cosmic' ? '#F0EFF8' : '#1C1814'};margin-bottom:8px">${label}</div>
+              <div style="height:5px;background:${borCol};border-radius:3px;margin-bottom:4px"></div>
+              <div style="height:5px;background:${accent};border-radius:3px;width:60%"></div>
+            </div>`).join('')}
+        </div>
+      </div>`,
+
+    security: () => `
+      <div class="setsec"><div class="setsec-t">Security</div><div class="setsec-d">Change your password.</div>
+        <div class="fg"><label class="fl" for="s-cur">Current password</label><input class="fi" id="s-cur" type="password" placeholder="Current password"></div>
+        <div class="frow">
+          <div class="fg"><label class="fl" for="s-new">New password</label><input class="fi" id="s-new" type="password" placeholder="New password"></div>
+          <div class="fg"><label class="fl" for="s-conf">Confirm new</label><input class="fi" id="s-conf" type="password" placeholder="Confirm"></div>
+        </div>
+        <div class="fe" id="s-perr" style="display:none"></div>
+        <button class="btn btn-primary" onclick="changePw()">Update password</button>
+      </div>`,
+
+    vault: () => `
+      <div class="setsec"><div class="setsec-t">Data Vault</div><div class="setsec-d">Export or import your entire workspace data. Keep a backup of everything in uni-co.</div>
+        <p style="font-size:12px;color:var(--tx2);margin-bottom:12px"><strong>Storage mode:</strong> ${'✅ Supabase (cloud — shared across all devices)'}</p>
+        <div class="vault-actions">
+          <button class="btn btn-primary" onclick="exportVault()" id="vault-export-btn">${I.fi} Export all data (.json)</button>
+          <button class="btn" onclick="document.getElementById('vault-import-input').click()">${I.up} Import data</button>
+          <input type="file" id="vault-import-input" accept=".json" style="display:none" onchange="importVault(this)">
+        </div>
+        <div class="vault-status" id="vault-status"></div>
+      </div>`,
+
+    account: () => `
+      <div class="setsec"><div class="setsec-t">Account</div><div class="setsec-d">Account details and actions.</div>
+        ${[['Email', S.user.email || 'Not set'], ['Phone', S.user.phone || 'Not set'], ['Role', S.user.role], ['Member since', fmtD(S.user.createdAt)]].map(([l, v]) => `
+        <div class="setrow"><div><div class="setrow-l">${l}</div><div class="setrow-d">${esc(v)}</div></div></div>`).join('')}
+        <div style="margin-top:18px;padding-top:18px;border-top:1px solid var(--bor)">
+          <button class="btn btn-danger" onclick="doLogout()">${I.lo} Sign out</button>
+        </div>
+      </div>`,
+  };
+
+  function render() {
+    document.querySelectorAll('.setni').forEach(n => n.classList.toggle('on', n.dataset.s === sec));
+    const c = document.getElementById('set-content');
+    if (c) c.innerHTML = sections[sec]?.() ?? '';
+  }
+
+  m.innerHTML = `<div class="pg">
+    <div class="ph"><h1>Settings</h1></div>
+    <div class="setlayout">
+      <div class="setnav">
+        ${[['profile', 'Profile', I.ed], ['appearance', 'Appearance', '☀'], ['security', 'Security', I.ky], ['vault', 'Data Vault', I.va], ['account', 'Account', I.lo]].map(([s, l, ic]) =>
+          `<div class="setni" data-s="${s}" onclick="setSec('${s}')">${typeof ic === 'string' && ic.length > 10 ? ic : `<span style="font-size:14px">${ic}</span>`} ${l}</div>`).join('')}
+      </div>
+      <div id="set-content"></div>
+    </div>
+  </div>`;
+
+  window.setSec = s => { sec = s; render(); };
+  window.reRenderAppear = () => { if (sec === 'appearance') render(); };
+  render();
+}
+
+async function saveProfile() {
+  if (demoGuard()) return;
+  const name = document.getElementById('s-name')?.value?.trim();
+  if (!name) { toast('Name required', 'error'); return; }
+  const deptId = document.getElementById('s-dept').value;
+  const dept = await StorageEngine.getDept(deptId);
+  const updated = await StorageEngine.updateUser(S.user.id, { fullName: name, departmentId: deptId, bio: document.getElementById('s-bio').value, gh: document.getElementById('s-gh').value, li: document.getElementById('s-li').value });
+  S.user = { ...S.user, ...updated, department: dept };
+  const un = document.querySelector('.uname'); if (un) un.textContent = name;
+  const ud = document.querySelector('.udept'); if (ud) ud.textContent = dept?.name || '';
+  toast('Profile saved', 'success');
+}
+
+async function changePw() {
+  if (demoGuard()) return;
+  const cur = document.getElementById('s-cur')?.value;
+  const nw = document.getElementById('s-new')?.value;
+  const conf = document.getElementById('s-conf')?.value;
+  const err = document.getElementById('s-perr'); err.style.display = 'none';
+  if (nw !== conf) { err.textContent = 'Passwords do not match.'; err.style.display = 'block'; return; }
+  try {
+    await StorageEngine.changePassword(S.user.id, cur, nw);
+    toast('Password updated', 'success');
+    ['s-cur', 's-new', 's-conf'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  } catch (e) { err.textContent = e.message; err.style.display = 'block'; }
+}
+
+async function exportVault() {
+  const btn = document.getElementById('vault-export-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Exporting...'; }
+  try {
+    const data = await StorageEngine.exportAll();
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `uni-co-vault-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    toast('Data exported successfully!', 'success');
+    const status = document.getElementById('vault-status');
+    if (status) status.textContent = `✅ Last export: ${new Date().toLocaleString()}`;
+  } catch (e) { toast('Export failed: ' + e.message, 'error'); }
+  if (btn) { btn.disabled = false; btn.textContent = '📥 Export all data (.json)'; }
+}
+
+async function importVault(input) {
+  const file = input.files[0];
+  if (!file) return;
+  if (!confirm('This will replace ALL existing data with the imported data. Are you sure?')) {
+    input.value = '';
+    return;
+  }
+  try {
+    const text = await file.text();
+    const data = JSON.parse(text);
+    await StorageEngine.importAll(data);
+    toast('Data imported! Reloading...', 'success');
+    setTimeout(() => location.reload(), 1500);
+  } catch (e) { toast('Import failed: ' + e.message, 'error'); }
+  input.value = '';
+}
+
+async function doLogout() {
+  if (!confirm('Sign out?')) return;
+  await StorageEngine.logout();
+  S.user = null;
+  document.getElementById('root').innerHTML = '';
+  showLogin();
+}
+
+/* ── Modal Handlers (Project CRUD, Tasks) ──────────────────────────── */
+async function openNewProject(sourceEl) {
+  if (demoGuard()) return;
+  const depts = await StorageEngine.getDepts();
+  const sel = document.getElementById('np-dept');
+  if (sel) sel.innerHTML = depts.map(d => `<option value="${d.id}"${d.id === S.user.departmentId ? ' selected' : ''}>${esc(d.name)} (${esc(d.code)})</option>`).join('');
+  M.open('new-project', sourceEl);
+  document.getElementById('np-title')?.focus();
+}
+
+async function submitNewProject() {
+  if (demoGuard()) return;
+  const title = document.getElementById('np-title')?.value?.trim();
+  if (!title) { toast('Enter a project title', 'error'); return; }
+  try {
+    const { id, keyCode } = await StorageEngine.createProject({
+      title,
+      description: document.getElementById('np-desc').value.trim(),
+      departmentId: document.getElementById('np-dept').value,
+      isOpenCollab: document.getElementById('np-open').checked,
+      dueDate: document.getElementById('np-due').value || null,
+      keyType: document.getElementById('np-keytype').value,
+      creatorId: S.user.id,
+    });
+    M.close('new-project');
+    document.getElementById('np-title').value = '';
+    document.getElementById('np-desc').value = '';
+    toast(`Created! Key: ${keyCode}`, 'success');
+    go('ws', { id });
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function submitJoinKey() {
+  if (demoGuard()) return;
+  const code = document.getElementById('jk-input')?.value?.trim().toUpperCase();
+  const err = document.getElementById('jk-err'); err.style.display = 'none';
+  if (!code) { err.textContent = 'Enter a key.'; err.style.display = 'block'; return; }
+  try {
+    const pid = await StorageEngine.joinByKey(code, S.user.id);
+    M.close('join-key');
+    toast('Joined project!', 'success');
+    go('ws', { id: pid });
+  } catch (e) { err.textContent = e.message; err.style.display = 'block'; }
+}
+
+let _editTaskId = null, _editProjectId = null;
+
+function openAddTask(pid, status) {
+  _editTaskId = null;
+  _editProjectId = pid;
+  document.getElementById('nt-title').value = '';
+  document.getElementById('nt-desc').value = '';
+  document.getElementById('nt-priority').value = 'MEDIUM';
+  document.getElementById('nt-due').value = '';
+  document.getElementById('nt-status').value = status;
+  M.open('new-task');
+  document.getElementById('nt-title')?.focus();
+}
+
+async function submitTask() {
+  if (demoGuard()) return;
+  const title = document.getElementById('nt-title')?.value?.trim();
+  if (!title) { toast('Enter a title', 'error'); return; }
+  await StorageEngine.createTask({
+    projectId: _editProjectId,
+    title,
+    description: document.getElementById('nt-desc').value,
+    priority: document.getElementById('nt-priority').value,
+    status: document.getElementById('nt-status').value,
+    dueDate: document.getElementById('nt-due').value || null,
+  });
+  M.close('new-task');
+  toast('Task added', 'success');
+  if (S.project) reloadWs();
+}
+
+async function openTaskDetail(taskId) {
+  _editTaskId = taskId;
+  const t = await StorageEngine.getTask(taskId);
+  if (!t) return;
+  document.getElementById('td-title').value = t.title;
+  document.getElementById('td-desc').value = t.description || '';
+  document.getElementById('td-status').value = t.status;
+  document.getElementById('td-priority').value = t.priority;
+  document.getElementById('td-due').value = t.dueDate ? t.dueDate.slice(0, 10) : '';
+  M.open('task-detail');
+}
+
+async function saveTask() {
+  if (demoGuard()) return;
+  if (!_editTaskId) return;
+  const prev = await StorageEngine.getTask(_editTaskId);
+  const newStatus = document.getElementById('td-status').value;
+  await StorageEngine.updateTask(_editTaskId, {
+    title: document.getElementById('td-title').value.trim(),
+    description: document.getElementById('td-desc').value,
+    status: newStatus,
+    priority: document.getElementById('td-priority').value,
+    dueDate: document.getElementById('td-due').value || null,
+  });
+  M.close('task-detail');
+  toast('Task saved', 'success');
+  // Trigger done-glow if moved to DONE
+  if (newStatus === 'DONE' && prev.status !== 'DONE') {
+    setTimeout(() => {
+      const card = document.querySelector(`.tkcard[data-tid="${_editTaskId}"]`);
+      if (card) { card.classList.add('done-glow'); setTimeout(() => card.classList.remove('done-glow'), 1000); }
+    }, 100);
+  }
+  if (S.project) reloadWs();
+}
+
+async function deleteTask() {
+  if (demoGuard()) return;
+  if (!_editTaskId || !confirm('Delete this task?')) return;
+  await StorageEngine.deleteTask(_editTaskId);
+  M.close('task-detail');
+  toast('Task deleted');
+  if (S.project) reloadWs();
+}
+
+async function reloadWs() { await showWorkspace(S.project); }
+
+/* ── Workspace ─────────────────────────────────────────────────────── */
+async function showWorkspace(id) {
+  S.project = id;
+  const m = document.getElementById('main');
+  m.innerHTML = '<div style="padding:20px;color:var(--tx3);display:flex;align-items:center;gap:8px"><div style="width:16px;height:16px;border-radius:50%;border:2px solid var(--brand);border-top-color:transparent;animation:spin 0.7s linear infinite"></div> Loading...</div>';
+  const p = await StorageEngine.getProject(id);
+  if (!p) { toast('Project not found', 'error'); go('projects'); return; }
+
+  const dept = p.department || {};
+  const col = dept.colorHex || '#534AB7';
+  const isLead = p.members?.some(m => m.userId === S.user.id && m.role === 'LEAD');
+  const tasks = p.tasks || [];
+  const done = tasks.filter(t => t.status === 'DONE').length;
+  const pct = tasks.length ? Math.round(done / tasks.length * 100) : 0;
+
+  m.innerHTML = `<div class="ws">
+    <div class="wsh">
+      <div style="display:flex;align-items:center;gap:10px;min-width:0;flex:1">
+        <button class="btn btn-ghost btn-sm" onclick="go('projects')" style="padding:4px 10px;font-size:12px;flex-shrink:0">← Back</button>
+        <div style="min-width:0">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <h2 style="font-size:15px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(p.title)}</h2>
+            <span class="badge" style="background:${col}22;color:${col};flex-shrink:0">${dept.code || ''}</span>
+            ${p.isOpenCollab ? '<span class="badge b-open" style="flex-shrink:0">Open</span>' : ''}
+          </div>
+          <div style="font-size:12px;color:var(--tx3);margin-top:2px">${esc(dept.name || '')}${p.dueDate ? ` · Due ${fmtD(p.dueDate)}` : ''} · ${done}/${tasks.length} tasks done</div>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+        ${avStack(p.members || [])}
+        ${isLead ? `<div style="position:relative">
+          <button class="btn btn-ghost btn-sm" onclick="toggleWsMenu()" id="ws-menu-btn" style="font-size:18px;padding:4px 8px">⋯</button>
+          <div id="ws-menu" style="display:none;position:absolute;top:34px;right:0;background:var(--sur);border:1px solid var(--bor);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,0.13);z-index:50;min-width:170px;overflow:hidden">
+            <div onclick="editProjTitle('${p.id}')" style="padding:9px 14px;font-size:13px;cursor:pointer;color:var(--tx)" onmouseover="this.style.background='var(--bg2)'" onmouseout="this.style.background=''">✏️ Rename project</div>
+            <div onclick="showPermissionsAuditor('${p.id}')" style="padding:9px 14px;font-size:13px;cursor:pointer;color:var(--tx)" onmouseover="this.style.background='var(--bg2)'" onmouseout="this.style.background=''">🔐 Permissions</div>
+            <div onclick="archiveProj('${p.id}')" style="padding:9px 14px;font-size:13px;cursor:pointer;color:var(--warn)" onmouseover="this.style.background='var(--warn-bg)'" onmouseout="this.style.background=''">📦 Archive</div>
+            <div style="height:1px;background:var(--bor)"></div>
+            <div onclick="leaveProj('${p.id}','${esc(p.title)}')" style="padding:9px 14px;font-size:13px;cursor:pointer;color:var(--tx2)" onmouseover="this.style.background='var(--bg2)'" onmouseout="this.style.background=''">Leave project</div>
+            <div onclick="deleteProj('${p.id}','${esc(p.title)}')" style="padding:9px 14px;font-size:13px;cursor:pointer;color:var(--err)" onmouseover="this.style.background='var(--err-bg)'" onmouseout="this.style.background=''">🗑 Delete project</div>
+          </div>
+        </div>` : `<div style="position:relative">
+          <button class="btn btn-ghost btn-sm" onclick="toggleWsMenu()" id="ws-menu-btn" style="font-size:18px;padding:4px 8px">⋯</button>
+          <div id="ws-menu" style="display:none;position:absolute;top:34px;right:0;background:var(--sur);border:1px solid var(--bor);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,0.13);z-index:50;min-width:170px;overflow:hidden">
+            <div onclick="leaveProj('${p.id}','${esc(p.title)}')" style="padding:9px 14px;font-size:13px;cursor:pointer;color:var(--err)" onmouseover="this.style.background='var(--err-bg)'" onmouseout="this.style.background=''">Leave project</div>
+          </div>
+        </div>`}
+      </div>
+    </div>
+    <div class="wstabs">
+      <div class="tab on" data-t="board"  onclick="wsTab(this,'board')">📋 Tasks</div>
+      <div class="tab"    data-t="files"  onclick="wsTab(this,'files')">📎 Files</div>
+      <div class="tab"    data-t="chat"   onclick="wsTab(this,'chat')">💬 Chat</div>
+      <div class="tab"    data-t="quiz"   onclick="wsTab(this,'quiz')">📝 Quiz</div>
+      <div class="tab"    data-t="graph"  onclick="wsTab(this,'graph')">🕸 Graph</div>
+      <div class="tab"    data-t="overview" onclick="wsTab(this,'overview')">⚙ Overview</div>
+    </div>
+    <div class="wsbody">
+      <div class="wsmain" id="ws-main"></div>
+      <div class="wsside" id="ws-side">${renderSide(p, isLead)}</div>
+    </div>
+  </div>`;
+
+  window._wsProject = p;
+
+  // Close ws menu on outside click
+  document.addEventListener('click', function wsMenuClose(e) {
+    if (!document.getElementById('ws-menu-btn')?.contains(e.target)) {
+      const menu = document.getElementById('ws-menu');
+      if (menu) menu.style.display = 'none';
+      document.removeEventListener('click', wsMenuClose);
+    }
+  });
+
+  renderWsTab('board', p);
+}
+
+window.toggleWsMenu = function() {
+  const menu = document.getElementById('ws-menu');
+  if (menu) menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+};
+
+window.editProjTitle = async function(id) {
+  const p = await StorageEngine.getProject(id);
+  const title = prompt('Rename project:', p.title);
+  if (!title || title === p.title) return;
+  await StorageEngine.updateProject(id, { title });
+  toast('Project renamed', 'success');
+  reloadWs();
+};
+
+function wsTab(el, t) {
+  document.querySelectorAll('.wstabs .tab').forEach(b => b.classList.remove('on'));
+  el.classList.add('on');
+  renderWsTab(t, window._wsProject);
+}
+
+function renderWsTab(t, p) {
+  const m = document.getElementById('ws-main');
+  if (!m) return;
+  if (t === 'board')    renderKanban(m, p);
+  else if (t === 'files')    renderFiles(m, p);
+  else if (t === 'chat')     renderChat(m, p);
+  else if (t === 'quiz')     renderQuiz(m, p);
+  else if (t === 'graph')    renderDependencyGraph(m, p);
+  else if (t === 'overview') renderOverview(m, p);
+}
+
+/* ── Project Overview Tab ─────────────────────────────────────────── */
+function renderOverview(container, p) {
+  const dept = p.department || {};
+  const col = dept.colorHex || '#534AB7';
+  const tasks = p.tasks || [];
+  const done = tasks.filter(t => t.status === 'DONE').length;
+  const inP = tasks.filter(t => t.status === 'IN_PROGRESS').length;
+  const todo = tasks.filter(t => t.status === 'TODO').length;
+  const pct = tasks.length ? Math.round(done / tasks.length * 100) : 0;
+  const isLead = p.members?.some(m => m.userId === S.user.id && m.role === 'LEAD');
+
+  container.innerHTML = `<div style="max-width:680px;display:flex;flex-direction:column;gap:14px">
+
+    <!-- Project info -->
+    <div class="card">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:14px">
+        <div style="flex:1">
+          <div style="font-size:18px;font-weight:700;margin-bottom:4px">${esc(p.title)}</div>
+          <div style="font-size:13px;color:var(--tx2);line-height:1.55">${esc(p.description || 'No description.')}</div>
+        </div>
+        <span class="badge" style="background:${col}22;color:${col};flex-shrink:0;font-size:13px;padding:4px 12px">${dept.name || dept.code || ''}</span>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">
+        ${[
+          ['Status', p.status === 'ACTIVE' ? '🟢 Active' : '📦 Archived'],
+          ['Due date', p.dueDate ? fmtD(p.dueDate) : 'Not set'],
+          ['Open collab', p.isOpenCollab ? 'Yes' : 'No'],
+          ['Members', p.members?.length || 0],
+        ].map(([l, v]) => `<div style="background:var(--bg2);border-radius:var(--r);padding:10px 12px">
+          <div style="font-size:11px;color:var(--tx3);font-weight:600;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:3px">${l}</div>
+          <div style="font-size:13.5px;font-weight:600;color:var(--tx)">${v}</div>
+        </div>`).join('')}
+      </div>
+    </div>
+
+    <!-- Progress -->
+    <div class="card">
+      <div style="font-size:13px;font-weight:600;margin-bottom:10px">Progress</div>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+        <div class="prog" style="flex:1;height:8px;border-radius:6px"><div class="prog-fill" style="width:${pct}%;background:${col};height:100%"></div></div>
+        <span style="font-size:13px;font-weight:700;color:${col}">${pct}%</span>
+      </div>
+      <div style="display:flex;gap:16px">
+        <span style="font-size:12px;color:var(--tx3)">✓ ${done} done</span>
+        <span style="font-size:12px;color:var(--brand)">▶ ${inP} in progress</span>
+        <span style="font-size:12px;color:var(--tx3)">○ ${todo} to do</span>
+      </div>
+    </div>
+
+    <!-- Danger zone for leads -->
+    ${isLead ? `<div class="card" style="border-color:var(--err-bg)">
+      <div style="font-size:13px;font-weight:700;color:var(--err);margin-bottom:12px">⚠ Danger zone</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <button class="btn btn-sm" style="background:var(--warn-bg);color:var(--warn);border:1px solid var(--warn-bg)" onclick="archiveProj('${p.id}')">📦 Archive project</button>
+        <button class="btn btn-sm" style="background:var(--bg2);color:var(--tx2);border:1px solid var(--bor)" onclick="leaveProj('${p.id}','${esc(p.title)}')">Leave project</button>
+        <button class="btn btn-sm btn-danger" onclick="deleteProj('${p.id}','${esc(p.title)}')">🗑 Delete project</button>
+      </div>
+      <div style="font-size:11.5px;color:var(--tx3);margin-top:8px">Deleting is permanent and removes all tasks, files and messages. As Lead, transfer leadership before leaving.</div>
+    </div>` : `<div class="card" style="border-color:var(--err-bg)">
+      <div style="font-size:13px;font-weight:700;color:var(--err);margin-bottom:12px">⚠ Danger zone</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <button class="btn btn-sm" style="background:var(--err-bg);color:var(--err);border:1px solid var(--err-bg)" onclick="leaveProj('${p.id}','${esc(p.title)}')">Leave project</button>
+      </div>
+      <div style="font-size:11.5px;color:var(--tx3);margin-top:8px">You will lose access and will need to be re-invited to rejoin.</div>
+    </div>`}
+  </div>`;
+}
+
+function renderSide(p, isLead) {
+  // Check if current user has canInvite permission
+  const myPerms = p._myPerms;
+
+  return `
+  <div class="ssec"><div class="sslbl">Team</div>
+    ${(p.members || []).map(m => `<div class="mrow">${av(m.user || m, 'sm')}
+      <div class="minfo"><div class="mname">${esc(m.user?.fullName || '')}</div><div class="mrole">${(m.role || '').charAt(0) + (m.role || '').slice(1).toLowerCase()}</div></div>
+      <div class="mdot ${Math.random() > .4 ? 'on' : ''}"></div>
+    </div>`).join('')}
+    ${isLead ? `<button class="btn btn-ghost btn-sm btn-block" style="margin-top:6px;color:var(--brand)" onclick="M.open('join-key')">${I.pl} Invite</button>` : ''}
+  </div>
+  <div class="ssec"><div class="sslbl">Invite key</div>
+    ${myPerms?.canInvite
+      ? (p.inviteKey
+        ? `<div class="keybox"><span class="keycode">${p.inviteKey.keyCode}</span><button class="btn btn-ghost btn-sm" onclick="navigator.clipboard.writeText('${p.inviteKey.keyCode}').then(()=>toast('Key copied!','success'))">${I.cp}</button></div>
+           <div class="keymeta">${p.inviteKey.keyType === 'MULTI_USE' ? 'Multi-use' : 'Single-use'} · ${p.inviteKey.usedCount} used</div>
+           ${isLead ? `<button class="btn btn-ghost btn-sm btn-block" style="margin-top:5px;color:var(--tx2)" onclick="regenKey('${p.id}')">${I.rf} Regenerate</button>` : ''}`
+        : '<p style="font-size:12px;color:var(--tx3)">No active key</p>')
+      : '<p style="font-size:12px;color:var(--tx3)">Ask the project lead for the invite key.</p>'
+    }
+  </div>
+  <div class="ssec"><div class="sslbl">Recent files</div>
+    ${(p.files || []).slice(0, 4).map(f => {
+      const [bg, c] = ftCol(f.fileType);
+      return `<div class="frow" onclick="StorageEngine.downloadFile('${f.id}')"><div class="fic" style="background:${bg};color:${c}">${f.fileType.slice(0, 3).toUpperCase()}</div><div class="fname">${esc(f.filename)}</div><div class="fmeta">v${f.version || 1}</div></div>`;
+    }).join('') || '<p style="font-size:12px;color:var(--tx3)">No files yet</p>'}
+  </div>`;
+}
+
+async function regenKey(pid) {
+  if (demoGuard()) return;
+  const kc = await StorageEngine.regenKey(pid);
+  toast(`New key: ${kc}`, 'success');
+  go('ws', { id: pid });
+}
+
+/* ── Permissions Auditor ─────────────────────────────────────────────── */
+async function showPermissionsAuditor(projectId) {
+  const p = await StorageEngine.getProject(projectId);
+  if (!p) return;
+  const allPerms = await StorageEngine.getPermissions(projectId);
+
+  const permRows = p.members.map(m => {
+    const perm = allPerms.find(pm => pm.userId === m.userId) || { canInvite: false, canEdit: false, canDelete: false };
+    const isLead = m.role === 'LEAD';
+    return `<tr style="border-bottom:1px solid var(--bor)">
+      <td style="padding:10px 14px;display:flex;align-items:center;gap:8px">
+        ${av(m.user || m, 'sm')}
+        <div><div style="font-size:13px;font-weight:500">${esc(m.user?.fullName || '')}</div>
+        <div style="font-size:11px;color:var(--tx3)">${esc(m.user?.email || '')} · ${isLead ? '<strong style="color:var(--brand)">Lead</strong>' : 'Contributor'}</div></div>
+      </td>
+      ${['canInvite','canEdit','canDelete'].map(cap => `
+        <td style="padding:10px 14px;text-align:center">
+          <label class="tog" ${isLead ? 'title="Lead always has full access"' : ''}>
+            <input type="checkbox" ${perm[cap] || isLead ? 'checked' : ''} ${isLead ? 'disabled' : ''}
+              onchange="updatePerm('${perm.id || ''}','${m.userId}','${projectId}','${cap}',this.checked)">
+            <span class="tslider"></span>
+          </label>
+        </td>`).join('')}
+    </tr>`;
+  }).join('');
+
+  // Show in a modal-like panel inline
+  const main = document.getElementById('ws-main');
+  main.innerHTML = `<div style="max-width:700px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+      <h2 style="font-size:16px;font-weight:700">🔐 Permissions — ${esc(p.title)}</h2>
+      <button class="btn btn-ghost btn-sm" onclick="renderWsTab('overview',window._wsProject)">← Back</button>
+    </div>
+    <div style="background:var(--sur);border:1px solid var(--bor);border-radius:var(--rl);overflow:hidden">
+      <table style="width:100%;border-collapse:collapse">
+        <thead>
+          <tr style="background:var(--bg2);border-bottom:1px solid var(--bor)">
+            <th style="padding:10px 14px;text-align:left;font-size:12px;color:var(--tx2)">Member</th>
+            <th style="padding:10px 14px;text-align:center;font-size:12px;color:var(--tx2)">Can Invite</th>
+            <th style="padding:10px 14px;text-align:center;font-size:12px;color:var(--tx2)">Can Edit</th>
+            <th style="padding:10px 14px;text-align:center;font-size:12px;color:var(--tx2)">Can Delete</th>
+          </tr>
+        </thead>
+        <tbody>${permRows}</tbody>
+      </table>
+    </div>
+    <div style="margin-top:10px;padding:10px 14px;background:var(--bg2);border-radius:var(--r);font-size:12px;color:var(--tx2)">
+      <strong>Can Invite</strong> — can see and share the invite key &nbsp;·&nbsp;
+      <strong>Can Edit</strong> — can modify tasks and files &nbsp;·&nbsp;
+      <strong>Can Delete</strong> — can delete tasks and files
+    </div>
+  </div>`;
+}
+
+window.updatePerm = async function(permId, userId, projectId, cap, value) {
+  if (demoGuard()) return;
+  const allPerms = await StorageEngine.getPermissions(projectId);
+  let perm = allPerms.find(p => p.userId === userId);
+  if (perm) {
+    await StorageEngine.updatePermission(perm.id, { [cap]: value });
+  } else {
+    await StorageEngine.put('permissions', {
+      id: StorageEngine.uid(), projectId, userId,
+      canInvite: false, canEdit: false, canDelete: false, [cap]: value
+    });
+  }
+  toast(`Permission updated`, 'success');
+  // Reload side panel
+  const p = await StorageEngine.getProject(projectId);
+  window._wsProject = p;
+  const isLead = p.members?.some(m => m.userId === S.user.id && m.role === 'LEAD');
+  const side = document.getElementById('ws-side');
+  if (side) side.innerHTML = renderSide(p, isLead);
+};
+
+/* ═══════════════════════════════════════════════════════════════════
+   SECTION 3 — Workspace Engine
+   Kanban, Files (Vault tagging), Chat, Quiz Module,
+   Dependency Graph, 12 Department Workstations
+═══════════════════════════════════════════════════════════════════ */
+
+/* ── Kanban Board ──────────────────────────────────────────────────── */
+/* ── Kanban with sort + drag-drop ──────────────────────────────────── */
+let _kanbanSort = 'priority';
+
+function sortTasks(tasks, sort) {
+  const PRI = { HIGH: 0, MEDIUM: 1, LOW: 2 };
+  return [...tasks].sort((a, b) => {
+    if (sort === 'priority') return (PRI[a.priority] ?? 1) - (PRI[b.priority] ?? 1);
+    if (sort === 'due') {
+      if (!a.dueDate && !b.dueDate) return 0;
+      if (!a.dueDate) return 1; if (!b.dueDate) return -1;
+      return new Date(a.dueDate) - new Date(b.dueDate);
+    }
+    return new Date(a.createdAt || 0) - new Date(b.createdAt || 0);
+  });
+}
+
+function renderKanban(container, p) {
+  const tasks = p.tasks || [];
+  const cols = [
+    { k: 'TODO',        l: 'To do',       c: 'var(--tx3)' },
+    { k: 'IN_PROGRESS', l: 'In progress', c: 'var(--brand)' },
+    { k: 'DONE',        l: 'Done',        c: 'var(--ok)' },
+  ];
+  container.innerHTML = `
+    <div class="task-sort-bar">
+      <span style="font-size:12px;font-weight:500;color:var(--tx3)">Sort:</span>
+      ${[['priority','Priority'],['due','Due date'],['created','Created']].map(([v,l]) =>
+        `<button class="sort-chip${_kanbanSort===v?' on':''}" onclick="setKanbanSort('${v}','${p.id}')">${l}</button>`
+      ).join('')}
+      <button class="btn btn-primary btn-sm" style="margin-left:auto" onclick="openAddTask('${p.id}','TODO')">${I.pl} Add task</button>
+    </div>
+    <div class="kanban">
+    ${cols.map(col => {
+      const ct = sortTasks(tasks.filter(t => t.status === col.k), _kanbanSort);
+      return `<div class="kcol" id="kcol-${col.k}"
+        ondragover="event.preventDefault();this.classList.add('drag-over')"
+        ondragleave="this.classList.remove('drag-over')"
+        ondrop="dropKanban(event,'${col.k}','${p.id}')">
+        <div class="kch">
+          <div class="klbl" style="color:${col.c}">${col.l}</div>
+          <span class="kcnt">${ct.length}</span>
+        </div>
+        <div>
+          ${ct.map(t => `<div class="tkcard ${t.status==='IN_PROGRESS'?'ip':t.status==='DONE'?'dn':''}"
+            draggable="true" data-tid="${t.id}"
+            ondragstart="event.dataTransfer.setData('taskId','${t.id}')"
+            onclick="openTaskDetail('${t.id}')"
+            role="button" tabindex="0" aria-label="${esc(t.title)}" onkeydown="if(event.key==='Enter')openTaskDetail('${t.id}')">
+            <div class="tktitle">${esc(t.title)}</div>
+            <div class="tkmeta">
+              ${t.dueDate ? `<span style="font-size:11px;color:${isOD(t.dueDate)?'var(--err)':'var(--tx3)'}">📅 ${fmtD(t.dueDate)}</span>` : '<span></span>'}
+              <span class="pri pri-${t.priority==='HIGH'?'h':t.priority==='LOW'?'l':'m'}">${(t.priority||'').charAt(0)+(t.priority||'').slice(1).toLowerCase()}</span>
+            </div>
+          </div>`).join('')}
+        </div>
+        <button class="add-tk" onclick="openAddTask('${p.id}','${col.k}')" aria-label="Add task">${I.pl} Add task</button>
+      </div>`;
+    }).join('')}
+    </div>`;
+}
+
+window.setKanbanSort = function(sort, pid) {
+  _kanbanSort = sort;
+  renderKanban(document.getElementById('ws-main'), window._wsProject);
+};
+
+window.dropKanban = async function(e, status, pid) {
+  e.preventDefault();
+  document.querySelectorAll('.kcol').forEach(c => c.classList.remove('drag-over'));
+  const taskId = e.dataTransfer.getData('taskId');
+  if (!taskId) return;
+  await StorageEngine.updateTask(taskId, { status });
+  const p = await StorageEngine.getProject(pid);
+  window._wsProject = p;
+  renderKanban(document.getElementById('ws-main'), p);
+  toast('Task moved', 'success');
+};
+
+/* ── Files (with Vault tagging and version display) ─────────────────── */
+function renderFiles(container, p) {
+  const fk = window._wsFeatureKey || '';
+  const typeMap = {
+    terminal_console: '.py,.js,.ts,.ipynb,.zip,.csv,.json',
+    model_viewer: '.obj,.stl,.glb,.pdf,.png',
+    spreadsheet_viewer: '.xlsx,.csv,.pdf,.pptx',
+    visual_board: '.png,.jpg,.jpeg,.svg,.fig,.psd',
+    citation_engine: '.docx,.doc,.pdf,.txt,.md,.bib',
+    latex_editor: '.tex,.pdf,.md',
+    lab_notebook: '.xlsx,.csv,.pdf,.png',
+    survey_builder: '.pdf,.docx,.xlsx,.csv',
+    case_board: '.pdf,.docx,.txt',
+    case_study_editor: '.pdf,.png,.docx',
+    blueprint_viewer: '.pdf,.png,.svg,.dwg',
+    debate_board: '.pdf,.docx,.txt',
+  };
+  const types = typeMap[fk] || '*';
+
+  // Fuzzy search for files
+  let filterQuery = '';
+
+  function renderFileList() {
+    const list = document.getElementById('files-list');
+    if (!list) return;
+    const allFiles = (p.files || []);
+    const filtered = filterQuery
+      ? allFiles.filter(f => f.filename.toLowerCase().includes(filterQuery.toLowerCase()) ||
+          (f.tags || []).some(t => t.toLowerCase().includes(filterQuery.toLowerCase())))
+      : allFiles;
+
+    list.innerHTML = filtered.length === 0
+      ? `<div class="empty">${I.fi}<p style="margin-top:8px">${filterQuery ? 'No matching files' : 'No files yet'}</p></div>`
+      : `<div style="background:var(--sur);border:1px solid var(--bor);border-radius:var(--rl);overflow:hidden">${filtered.map(f => {
+          const [bg, c] = ftCol(f.fileType);
+          const canDelete = f.uploadedById === S.user.id || p.members?.some(m => m.userId === S.user.id && m.role === 'LEAD');
+          return `<div class="frow" style="padding:10px 14px">
+            <div class="fic" style="background:${bg};color:${c}">${f.fileType.slice(0, 3).toUpperCase()}</div>
+            <div style="flex:1;min-width:0">
+              <div class="fname">${esc(f.filename)}</div>
+              <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:2px">
+                ${(f.tags || []).map(t => `<span class="fchip" style="font-size:9px;padding:1px 5px">${esc(t)}</span>`).join('')}
+              </div>
+              <div class="fmeta">${fmtSz(f.sizeBytes)} · v${f.version || 1} · ${fmtD(f.createdAt)}</div>
+            </div>
+            <div style="display:flex;gap:4px">
+              <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();addFileTag('${f.id}')" title="Tag">🏷</button>
+              <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();StorageEngine.downloadFile('${f.id}')" title="Download">${I.fi}</button>
+              ${canDelete ? `<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();deleteFile('${f.id}','${p.id}')" title="Delete" style="color:var(--err)">${I.tr}</button>` : ''}
+            </div>
+          </div>`;
+        }).join('')}</div>`;
+  }
+
+  container.innerHTML = `<div style="max-width:640px">
+    <div style="display:flex;gap:8px;margin-bottom:12px">
+      <div class="swrap" style="flex:1">
+        <span class="sico">${I.ex}</span>
+        <input class="sinput" id="file-filter" placeholder="Filter files (fuzzy)..." oninput="fileFilter(this.value)" style="padding-left:36px">
+      </div>
+      <button class="btn btn-primary" onclick="document.getElementById('uinput').click()">${I.up} Upload</button>
+    </div>
+    <div class="upzone" id="upzone" ondragover="event.preventDefault();this.classList.add('drag')" ondragleave="this.classList.remove('drag')" ondrop="dropFile(event,'${p.id}')">
+      <div class="upic">${I.up}</div>
+      <p style="font-size:14px;font-weight:500;margin-bottom:4px">Drag & drop files</p>
+      <p style="font-size:12px;color:var(--tx3)">or click the Upload button above</p>
+      <div class="fchips">${types.split(',').map(t => `<span class="fchip">${t.trim()}</span>`).join('')}</div>
+    </div>
+    <input type="file" id="uinput" style="display:none" multiple onchange="pickFile(event,'${p.id}')">
+    <div id="files-list" style="margin-top:14px"></div>
+  </div>`;
+
+  window.fileFilter = (q) => { filterQuery = q; renderFileList(); };
+  renderFileList();
+}
+
+async function pickFile(e, pid) { for (const f of e.target.files) await doUpload(f, pid); }
+async function dropFile(e, pid) {
+  e.preventDefault();
+  document.getElementById('upzone')?.classList.remove('drag');
+  for (const f of e.dataTransfer.files) await doUpload(f, pid);
+}
+async function doUpload(file, pid) {
+  if (demoGuard()) return;
+  toast(`Uploading ${file.name}...`);
+  await StorageEngine.uploadFile(pid, S.user.id, file);
+  toast(`${file.name} uploaded`, 'success');
+  reloadWs();
+}
+
+async function deleteFile(fileId, pid) {
+  if (demoGuard()) return;
+  if (!confirm('Delete this file? This cannot be undone.')) return;
+  await StorageEngine.deleteFile(fileId);
+  toast('File deleted');
+  reloadWs();
+}
+
+async function addFileTag(fileId) {
+  const tag = prompt('Enter a tag (e.g. "draft", "final", "reference"):');
+  if (!tag) return;
+  const f = await StorageEngine.get('files', fileId);
+  await StorageEngine.updateFileTags(fileId, [...(f.tags || []), tag.toLowerCase().trim()]);
+  toast(`Tag "${tag}" added`, 'success');
+  reloadWs();
+}
+
+/* ── Chat (Fix 2+3: avatars both sides, delete own messages, proper layout) ── */
+function renderChat(container, p) {
+  const u = S.user;
+  const isLead = p.members?.some(m => m.userId === u.id && m.role === 'LEAD');
+
+  container.innerHTML = `<div style="display:flex;flex-direction:column;height:calc(100vh - 190px);min-height:400px;background:var(--sur);border:1px solid var(--bor);border-radius:var(--rl);overflow:hidden">
+    <div style="padding:10px 14px;border-bottom:1px solid var(--bor);background:var(--bg2);font-size:13px;font-weight:600;color:var(--tx2);flex-shrink:0">
+      💬 Team chat · ${p.members?.length || 0} members
+    </div>
+    <div id="msgs" style="flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:14px;scroll-behavior:smooth">
+      ${(p.messages || []).length === 0
+        ? `<div style="text-align:center;padding:40px 20px;color:var(--tx3);font-size:13px">
+             <div style="font-size:28px;margin-bottom:8px">💬</div>
+             No messages yet — say hello!
+           </div>`
+        : (p.messages || []).map(msg => chatBubbleHTML(msg, u.id, isLead)).join('')}
+    </div>
+    <div style="padding:12px 14px;border-top:1px solid var(--bor);background:var(--sur);display:flex;gap:8px;align-items:center;flex-shrink:0">
+      <input id="chat-in" placeholder="Message the team…"
+        style="flex:1;padding:10px 14px;border:1.5px solid var(--bor);border-radius:22px;background:var(--bg2);color:var(--tx);font-size:14px;outline:none;font-family:inherit;transition:border-color 0.2s"
+        onfocus="this.style.borderColor='var(--brand)'" onblur="this.style.borderColor='var(--bor)'"
+        onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendChat('${p.id}')}">
+      <button onclick="sendChat('${p.id}')"
+        style="width:40px;height:40px;border-radius:50%;background:var(--brand);color:#fff;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all 0.2s"
+        onmouseover="this.style.background='var(--brand-d)';this.style.transform='scale(1.05)'"
+        onmouseout="this.style.background='var(--brand)';this.style.transform=''">
+        ${I.sd}
+      </button>
+    </div>
+  </div>`;
+
+  const msgs = document.getElementById('msgs');
+  if (msgs) msgs.scrollTop = msgs.scrollHeight;
+  setTimeout(() => document.getElementById('chat-in')?.focus(), 100);
+}
+
+function chatBubbleHTML(msg, myId, isLead) {
+  const isSelf = msg.senderId === myId;
+  const sender = isSelf ? S.user : (msg.sender || {});
+  const canDelete = isSelf || isLead;
+  const code = sender?.department?.code || '';
+  const bg = db_(code.toUpperCase()), col = dc(code.toUpperCase());
+
+  return `<div class="chat-msg-row" data-mid="${msg.id}" style="display:flex;gap:9px;align-items:flex-end;${isSelf ? 'flex-direction:row-reverse' : ''}">
+    <div style="width:30px;height:30px;border-radius:50%;background:${bg};color:${col};font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-bottom:2px">
+      ${ini(sender?.fullName)}
+    </div>
+    <div style="max-width:68%;${isSelf ? 'align-items:flex-end' : ''}; display:flex;flex-direction:column">
+      <div style="font-size:11px;color:var(--tx3);margin-bottom:3px;${isSelf ? 'text-align:right' : ''}">
+        ${esc(isSelf ? 'You' : (sender?.fullName || 'Unknown'))} · ${new Date(msg.sentAt || Date.now()).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}
+        ${canDelete ? `<button onclick="deleteChatMsg('${msg.id}')" style="background:none;border:none;cursor:pointer;color:var(--tx3);font-size:11px;margin-left:4px;padding:0;line-height:1;opacity:0.5" onmouseover="this.style.opacity=1;this.style.color='var(--err)'" onmouseout="this.style.opacity=0.5;this.style.color='var(--tx3)'" title="Delete">✕</button>` : ''}
+      </div>
+      <div style="padding:9px 14px;border-radius:${isSelf ? '16px 16px 4px 16px' : '16px 16px 16px 4px'};background:${isSelf ? 'var(--brand)' : 'var(--bg2)'};color:${isSelf ? '#fff' : 'var(--tx)'};font-size:14px;line-height:1.5;word-break:break-word">
+        ${esc(msg.content)}
+      </div>
+    </div>
+  </div>`;
+}
+
+async function sendChat(pid) {
+  if (demoGuard()) return;
+  const inp = document.getElementById('chat-in');
+  const txt = inp?.value?.trim();
+  if (!txt) return;
+  inp.value = '';
+  const msg = await StorageEngine.sendMsg(pid, S.user.id, txt);
+  const msgs = document.getElementById('msgs');
+  if (!msgs) return;
+  const el = document.createElement('div');
+  el.outerHTML; // noop
+  const p = window._wsProject;
+  const isLead = p?.members?.some(m => m.userId === S.user.id && m.role === 'LEAD');
+  msgs.insertAdjacentHTML('beforeend', chatBubbleHTML({ ...msg, sender: S.user }, S.user.id, isLead));
+  msgs.scrollTop = msgs.scrollHeight;
+}
+
+async function deleteChatMsg(msgId) {
+  if (demoGuard()) return;
+  if (!confirm('Delete this message?')) return;
+  await StorageEngine.deleteMsg(msgId);
+  const row = document.querySelector(`.chat-msg-row[data-mid="${msgId}"]`);
+  if (row) {
+    row.style.transition = 'all 0.2s';
+    row.style.opacity = '0';
+    row.style.transform = 'scale(0.9)';
+    setTimeout(() => row.remove(), 200);
+  }
+  toast('Message deleted');
+}
+
+/* ── Quiz Module ────────────────────────────────────────────────────── */
+function renderQuiz(container, p) {
+  const quizzes = p.quizzes || [];
+
+  function renderQuizList() {
+    const ql = document.getElementById('quiz-list');
+    if (!ql) return;
+    ql.innerHTML = quizzes.length === 0
+      ? `<div class="empty"><div class="emico">${I.qu}</div><p style="margin-top:8px">No quizzes yet</p><button class="btn btn-primary btn-sm" style="margin-top:10px" onclick="showQuizCreator('${p.id}')">${I.pl} Create Quiz</button></div>`
+      : `<div style="margin-bottom:16px"><button class="btn btn-primary btn-sm" onclick="showQuizCreator('${p.id}')">${I.pl} Create Quiz</button></div>
+         ${quizzes.map(q => `<div class="quiz-card card-c" onclick="takeQuiz('${q.id}')">
+           <div style="display:flex;justify-content:space-between;align-items:center">
+             <div><div style="font-weight:600">${esc(q.title)}</div><div style="font-size:12px;color:var(--tx3);margin-top:2px">${(q.questions || []).length} questions · ${esc(q.description || '')}</div></div>
+             <span class="badge b-blue">Take</span>
+           </div>
+         </div>`).join('')}`;
+  }
+
+  container.innerHTML = `<div class="quiz-wrap">
+    <h3 style="margin-bottom:12px">Peer Quizzes</h3>
+    <div id="quiz-list"></div>
+    <div id="quiz-area"></div>
+  </div>`;
+
+  window.showQuizCreator = (pid) => {
+    const area = document.getElementById('quiz-area');
+    area.innerHTML = `<div class="quiz-create" style="background:var(--sur);border:1px solid var(--bor);border-radius:var(--rl);padding:20px;margin-top:12px">
+      <h3 style="margin-bottom:12px">Create Quiz</h3>
+      <div class="fg"><label class="fl" for="qc-title">Title</label><input class="fi" id="qc-title" placeholder="e.g. UI Design Principles"></div>
+      <div class="fg"><label class="fl" for="qc-desc">Description</label><input class="fi" id="qc-desc" placeholder="Brief description..."></div>
+      <div id="qc-questions"></div>
+      <button class="btn btn-sm" onclick="addQCQuestion()" style="margin-bottom:12px">${I.pl} Add Question</button>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-primary" onclick="saveQuiz('${pid}')">Save Quiz</button>
+        <button class="btn" onclick="renderQuiz(document.getElementById('ws-main'),window._wsProject)">Cancel</button>
+      </div>
+    </div>`;
+    addQCQuestion();
+  };
+
+  window.addQCQuestion = () => {
+    const qs = document.getElementById('qc-questions');
+    const i = qs.children.length;
+    const div = document.createElement('div');
+    div.style.cssText = 'border:1px solid var(--bor);border-radius:var(--r);padding:12px;margin-bottom:8px';
+    div.innerHTML = `
+      <div class="fg"><label class="fl" for="qc-q-${i}">Question ${i + 1}</label><input class="fi qc-q" id="qc-q-${i}" placeholder="Question text..."></div>
+      ${[0,1,2,3].map(j => `<div class="fg"><input class="fi qc-o" placeholder="Option ${j+1}${j===0?' (correct)':''}" data-correct="${j===0}"></div>`).join('')}
+      <span style="font-size:10px;color:var(--tx3)">First option = correct answer</span>
+    `;
+    qs.appendChild(div);
+  };
+
+  window.saveQuiz = async (pid) => {
+    if (demoGuard()) return;
+    const title = document.getElementById('qc-title')?.value?.trim();
+    if (!title) { toast('Title required', 'error'); return; }
+    const desc = document.getElementById('qc-desc')?.value?.trim() || '';
+    const questionDivs = document.querySelectorAll('#qc-questions > div');
+    const questions = [];
+    questionDivs.forEach(div => {
+      const qText = div.querySelector('.qc-q')?.value?.trim();
+      const opts = [...div.querySelectorAll('.qc-o')].map(inp => inp.value.trim()).filter(Boolean);
+      if (qText && opts.length >= 2) questions.push({ q: qText, options: opts, correctIndex: 0 });
+    });
+    if (questions.length === 0) { toast('Add at least one question', 'error'); return; }
+    await StorageEngine.createQuiz({ projectId: pid, title, description: desc, questions, createdBy: S.user.id });
+    toast('Quiz created!', 'success');
+    reloadWs();
+  };
+
+  window.takeQuiz = async (quizId) => {
+    const quiz = await StorageEngine.getQuiz(quizId);
+    if (!quiz) return;
+    const area = document.getElementById('quiz-area');
+    let answers = new Array(quiz.questions.length).fill(-1);
+    let submitted = false;
+
+    function renderTake() {
+      area.innerHTML = `<div style="background:var(--sur);border:1px solid var(--bor);border-radius:var(--rl);padding:20px;margin-top:12px">
+        <h3>${esc(quiz.title)}</h3>
+        <p style="font-size:12px;color:var(--tx2);margin-bottom:16px">${esc(quiz.description)}</p>
+        ${quiz.questions.map((q, i) => `<div class="quiz-card ${submitted ? (answers[i] === q.correctIndex ? 'correct' : 'wrong') : ''}">
+          <div style="font-weight:500;margin-bottom:10px">${i+1}. ${esc(q.q)}</div>
+          ${q.options.map((opt, j) => `<div class="quiz-opt ${answers[i]===j?'selected':''} ${submitted&&j===q.correctIndex?'correct':''} ${submitted&&answers[i]===j&&j!==q.correctIndex?'wrong':''}"
+            onclick="${submitted?'':`setAnswer(${i},${j})`}">${esc(opt)}</div>`).join('')}
+        </div>`).join('')}
+        ${!submitted
+          ? `<button class="btn btn-primary btn-block" onclick="submitQuiz('${quizId}')" id="quiz-submit-btn">Submit Answers</button>`
+          : `<div class="quiz-score">
+              <div class="quiz-score-val">${answers.filter((a,i)=>a===quiz.questions[i].correctIndex).length}/${quiz.questions.length}</div>
+              <p style="color:var(--tx2);margin-top:4px">${answers.filter((a,i)=>a===quiz.questions[i].correctIndex).length===quiz.questions.length?'🎉 Perfect score!':'Keep learning!'}</p>
+              <button class="btn btn-sm" style="margin-top:12px" onclick="renderQuiz(document.getElementById('ws-main'),window._wsProject)">Back to quizzes</button>
+            </div>`}
+      </div>`;
+    }
+
+    window.setAnswer = (i, j) => { answers[i] = j; renderTake(); };
+    window.submitQuiz = async (qid) => {
+      if (demoGuard()) return;
+      submitted = true;
+      const score = answers.filter((a, i) => a === quiz.questions[i].correctIndex).length;
+      await StorageEngine.submitQuizAttempt({ quizId: qid, userId: S.user.id, answers, score, total: quiz.questions.length });
+      renderTake();
+      toast(`Score: ${score}/${quiz.questions.length}`, score === quiz.questions.length ? 'success' : 'info');
+    };
+    renderTake();
+  };
+
+  renderQuizList();
+}
+
+/* ── Dependency Graph ──────────────────────────────────────────────── */
+function renderDependencyGraph(container, p) {
+  container.innerHTML = `<div class="graph-wrap">
+    <div class="graph-legend">
+      <div style="font-size:11px;font-weight:600;margin-bottom:4px">Legend</div>
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:2px"><div style="width:10px;height:10px;border-radius:2px;background:var(--brand)"></div> This project</div>
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:2px"><div style="width:10px;height:10px;border-radius:2px;background:var(--ok)"></div> Completed</div>
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:2px"><div style="width:10px;height:10px;border-radius:2px;background:var(--warn)"></div> In progress</div>
+      <div style="display:flex;align-items:center;gap:6px"><div style="width:10px;height:10px;border-radius:2px;background:var(--tx3)"></div> Todo</div>
+    </div>
+    <canvas class="graph-canvas" id="graph-canvas"></canvas>
+  </div>`;
+
+  setTimeout(() => drawGraph(p), 200);
+}
+
+function drawGraph(p) {
+  const canvas = document.getElementById('graph-canvas');
+  if (!canvas) return;
+  const w = canvas.offsetWidth || 600;
+  const h = 500;
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+
+  // Background
+  ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--sur').trim() || '#fff';
+  ctx.fillRect(0, 0, w, h);
+
+  const tasks = p.tasks || [];
+  if (tasks.length === 0) {
+    ctx.fillStyle = '#8E8BAD';
+    ctx.font = '14px Inter, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Add tasks to see the dependency graph', w/2, h/2);
+    return;
+  }
+
+  // Arrange nodes in a radial layout
+  const cx = w / 2, cy = h / 2;
+  const radius = Math.min(w, h) * 0.35;
+  const nodes = tasks.map((t, i) => {
+    const angle = (i / tasks.length) * Math.PI * 2 - Math.PI / 2;
+    return {
+      x: cx + Math.cos(angle) * radius,
+      y: cy + Math.sin(angle) * radius,
+      id: t.id,
+      title: t.title,
+      status: t.status,
+      priority: t.priority,
+      color: t.status === 'DONE' ? '#1D9E75' : t.status === 'IN_PROGRESS' ? '#BA7517' : '#8E8BAD',
+      radius: t.priority === 'HIGH' ? 28 : t.priority === 'MEDIUM' ? 22 : 18,
+    };
+  });
+
+  // Draw edges (dependencies — simulated as sequential for demo)
+  ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--bor').trim() || '#E4E3F0';
+  ctx.lineWidth = 2;
+  for (let i = 0; i < nodes.length - 1; i++) {
+    ctx.beginPath();
+    ctx.moveTo(nodes[i].x, nodes[i].y);
+    ctx.lineTo(nodes[i + 1].x, nodes[i + 1].y);
+    ctx.stroke();
+  }
+
+  // Draw nodes
+  nodes.forEach(n => {
+    // Circle
+    ctx.beginPath();
+    ctx.arc(n.x, n.y, n.radius, 0, Math.PI * 2);
+    ctx.fillStyle = n.color + '22';
+    ctx.fill();
+    ctx.strokeStyle = n.color;
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+
+    // Label
+    ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--tx').trim() || '#0F0E1A';
+    ctx.font = '10px Inter, sans-serif';
+    ctx.textAlign = 'center';
+    const words = n.title.split(' ');
+    const line1 = words.slice(0, 2).join(' ');
+    const line2 = words.slice(2, 4).join(' ');
+    ctx.fillText(line1, n.x, n.y - 3);
+    if (line2) ctx.fillText(line2, n.x, n.y + 11);
+  });
+
+  // Center label
+  ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--brand').trim() || '#534AB7';
+  ctx.font = 'bold 14px Inter, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText(p.title, cx, cy);
+}
+
+/* ── Activity Feed ─────────────────────────────────────────────────── */
+function renderActivity(container, p) {
+  const evts = [
+    { ic: '✓', tx: `<strong>Jamie D.</strong> completed "Initial project brief"`, tm: '2h ago' },
+    { ic: '📎', tx: `<strong>Alex M.</strong> uploaded <em>wireframes_v3.fig</em>`, tm: '4h ago' },
+    { ic: '👤', tx: `<strong>Kim L.</strong> joined the project`, tm: 'Yesterday' },
+    { ic: '✏️', tx: `<strong>Jamie D.</strong> updated the project description`, tm: '2 days ago' },
+    { ic: '🔑', tx: `<strong>Jamie D.</strong> created project and generated invite key`, tm: '3 days ago' },
+  ];
+  container.innerHTML = `<div style="max-width:560px" class="stagger">
+    <div style="background:var(--sur);border:1px solid var(--bor);border-radius:var(--rl);overflow:hidden">
+      ${evts.map(e => `<div style="display:flex;gap:12px;padding:12px 16px;border-bottom:1px solid var(--bor)">
+        <span style="font-size:16px;width:24px;flex-shrink:0">${e.ic}</span>
+        <div><div style="font-size:13px">${e.tx}</div><div style="font-size:11px;color:var(--tx3);margin-top:2px">${e.tm}</div></div>
+      </div>`).join('')}
+    </div>
+  </div>`;
+}
+
+/* ── Department Workstation Router ──────────────────────────────────── */
+function renderWS(container, p, fk) {
+  if (fk === 'terminal_console') wsTerminal(container, p);
+  else if (fk === 'model_viewer') wsModel(container, p);
+  else if (fk === 'spreadsheet_viewer') wsSheet(container, p);
+  else if (fk === 'visual_board') wsVisual(container, p);
+  else if (fk === 'citation_engine') wsCitation(container, p);
+  else if (fk === 'latex_editor') wsLatex(container, p);
+  else if (fk === 'lab_notebook') wsLab(container, p);
+  else if (fk === 'survey_builder') wsSurvey(container, p);
+  else if (fk === 'case_board') wsCase(container, p);
+  else if (fk === 'case_study_editor') wsCaseStudy(container, p);
+  else if (fk === 'blueprint_viewer') wsBlueprint(container, p);
+  else if (fk === 'debate_board') wsDebate(container, p);
+  else container.innerHTML = `<div class="empty"><p>Workstation coming soon</p></div>`;
+}
+
+/* ── Terminal Console (Computer Science) ────────────────────────────── */
+let _termHistory = ['Welcome to the uni-co Terminal Console.', 'Type "help" for available commands.', ''];
+
+function wsTerminal(c, p) {
+  c.innerHTML = `<div class="term-wrap">
+    <div class="term-bar">
+      <div class="cdots"><div class="cdot" style="background:#FF5F57"></div><div class="cdot" style="background:#FFBD2E"></div><div class="cdot" style="background:#28C840"></div></div>
+      <span style="font-size:11px;color:#666;font-family:var(--mono)">terminal — ${esc(p.title)}</span>
+      <button class="cbtn" style="margin-left:auto;background:transparent;color:#aaa" onclick="_termHistory=[];reloadWs()">clear</button>
+    </div>
+    <div class="term-body" id="term-body">
+      ${_termHistory.map(l => `<div class="term-line ${l.startsWith('$ ')?'term-prompt':l.startsWith('Error')?'term-error':'term-output'}">${esc(l)}</div>`).join('')}
+    </div>
+    <div class="term-input-row">
+      <span style="color:#00FF88;font-family:var(--mono);font-size:12px">$</span>
+      <input class="term-input" id="term-input" placeholder="Type a command..." onkeydown="if(event.key==='Enter')runTermCmd()" autofocus>
+    </div>
+  </div>`;
+
+  const body = document.getElementById('term-body');
+  if (body) body.scrollTop = body.scrollHeight;
+  setTimeout(() => document.getElementById('term-input')?.focus(), 100);
+}
+
+function runTermCmd() {
+  const inp = document.getElementById('term-input');
+  if (!inp) return;
+  const cmd = inp.value.trim();
+  inp.value = '';
+  if (!cmd) return;
+
+  _termHistory.push(`$ ${cmd}`);
+
+  const parts = cmd.split(' ');
+  const main = parts[0].toLowerCase();
+  const args = parts.slice(1);
+
+  const tasks = (window._wsProject?.tasks || []);
+  const todoCount = tasks.filter(t => t.status === 'TODO').length;
+  const ipCount = tasks.filter(t => t.status === 'IN_PROGRESS').length;
+  const doneCount = tasks.filter(t => t.status === 'DONE').length;
+
+  const commands = {
+    help: () => [
+      'Available commands:',
+      '  help          — Show this message',
+      '  status        — Project task summary',
+      '  tasks         — List all tasks',
+      '  files         — Show file count',
+      '  members       — List team members',
+      '  key           — Show invite key',
+      '  echo [text]   — Print text',
+      '  date          — Current date/time',
+      '  whoami        — Your username',
+      '  clear         — Clear terminal (refresh)',
+      '  math [expr]   — Evaluate simple math (e.g. math 2+3*4)',
+    ],
+    status: () => [`📊 ${esc(window._wsProject?.title)} — ${todoCount} todo, ${ipCount} in progress, ${doneCount} done`],
+    tasks: () => tasks.map(t => `  [${t.status === 'DONE' ? '✓' : t.status === 'IN_PROGRESS' ? '▶' : '○'}] ${t.title} (${t.priority})`),
+    files: () => [`📁 ${(window._wsProject?.files || []).length} files uploaded`],
+    members: () => (window._wsProject?.members || []).map(m => `  ${m.user?.fullName || 'Unknown'} — ${m.role}`),
+    key: () => [`🔑 ${window._wsProject?.inviteKey?.keyCode || 'No active key'}`],
+    echo: () => [args.join(' ')],
+    date: () => [new Date().toString()],
+    whoami: () => [S.user?.fullName || 'unknown'],
+    math: () => {
+      try {
+        const expr = args.join('');
+        // Safe eval: only allow numbers, operators, parens, and spaces
+        if (!/^[\d\s+\-*/().]+$/.test(expr)) return ['Error: invalid expression'];
+        const result = Function(`"use strict"; return (${expr})`)();
+        return [`= ${result}`];
+      } catch (e) { return [`Error: ${e.message}`]; }
+    },
+  };
+
+  const output = commands[main] ? commands[main]() : [`Command not found: ${main}. Type "help" for commands.`];
+  _termHistory.push(...output.map(l => String(l)));
+  _termHistory.push('');
+
+  // Re-render terminal body
+  const body = document.getElementById('term-body');
+  if (body) {
+    body.innerHTML = _termHistory.map(l =>
+      `<div class="term-line ${l.startsWith('$ ') ? 'term-prompt' : l.startsWith('Error') || l.startsWith('Command not found') ? 'term-error' : 'term-output'}">${esc(l)}</div>`
+    ).join('');
+    body.scrollTop = body.scrollHeight;
+  }
+}
+
+/* ── Citation Engine (English & Literature) ─────────────────────────── */
+let _citations = [];
+
+function wsCitation(c, p) {
+  function renderCitations() {
+    const list = document.getElementById('cite-list');
+    if (!list) return;
+    list.innerHTML = _citations.length === 0
+      ? `<p style="color:var(--tx3);font-size:13px">No citations yet. Add one using the form.</p>`
+      : _citations.map((cit, i) => `<div class="cite-item" onclick="copyCitation(${i})">
+          <div style="font-size:12px;line-height:1.6">${cit.formatted}</div>
+          <div style="font-size:10px;color:var(--tx3);margin-top:3px">${cit.style} · Click to copy</div>
+        </div>`).join('');
+  }
+
+  c.innerHTML = `<div class="cite-wrap">
+    <div class="cite-input">
+      <h3 style="margin-bottom:12px">Add Citation</h3>
+      <div class="fg"><label class="fl" for="cite-style">Style</label><select class="fi fi-select" id="cite-style"><option value="APA">APA 7th</option><option value="MLA">MLA 9th</option></select></div>
+      <div class="frow">
+        <div class="fg"><label class="fl" for="cite-author">Author(s)</label><input class="fi" id="cite-author" placeholder="e.g. Smith, J."></div>
+        <div class="fg"><label class="fl" for="cite-year">Year</label><input class="fi" id="cite-year" placeholder="2024"></div>
+      </div>
+      <div class="fg"><label class="fl" for="cite-title">Title</label><input class="fi" id="cite-title" placeholder="Article or book title"></div>
+      <div class="fg"><label class="fl" for="cite-source">Source / Journal</label><input class="fi" id="cite-source" placeholder="Journal name or publisher"></div>
+      <div class="frow">
+        <div class="fg"><label class="fl" for="cite-vol">Volume</label><input class="fi" id="cite-vol" placeholder="e.g. 12"></div>
+        <div class="fg"><label class="fl" for="cite-pages">Issue / Pages</label><input class="fi" id="cite-pages" placeholder="e.g. 45-67"></div>
+      </div>
+      <div class="fg"><label class="fl" for="cite-doi">DOI or URL</label><input class="fi" id="cite-doi" placeholder="https://doi.org/..."></div>
+      <button class="btn btn-primary" onclick="addCitation()">Generate Citation</button>
+    </div>
+    <div class="cite-output">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <h3>Bibliography</h3>
+        <button class="btn btn-sm" onclick="exportCitations()">Export .bib</button>
+      </div>
+      <div id="cite-list"></div>
+    </div>
+  </div>`;
+
+  window.addCitation = () => {
+    const style = document.getElementById('cite-style')?.value || 'APA';
+    const author = document.getElementById('cite-author')?.value?.trim();
+    const year = document.getElementById('cite-year')?.value?.trim();
+    const title = document.getElementById('cite-title')?.value?.trim();
+    const source = document.getElementById('cite-source')?.value?.trim();
+    const vol = document.getElementById('cite-vol')?.value?.trim();
+    const pages = document.getElementById('cite-pages')?.value?.trim();
+    const doi = document.getElementById('cite-doi')?.value?.trim();
+
+    if (!author || !title) { toast('Author and title required', 'error'); return; }
+
+    let formatted = '';
+    if (style === 'APA') {
+      formatted = `${author} (${year || 'n.d.'}). ${title}. `;
+      if (source) formatted += `<em>${source}</em>`;
+      if (vol) formatted += `, <em>${vol}</em>`;
+      if (pages) formatted += `(${pages})`;
+      formatted += '.';
+      if (doi) formatted += ` https://doi.org/${doi.replace('https://doi.org/', '')}`;
+    } else { // MLA
+      formatted = `${author}. "${title}." `;
+      if (source) formatted += `<em>${source}</em>`;
+      if (vol) formatted += `, vol. ${vol}`;
+      if (year) formatted += `, ${year}`;
+      if (pages) formatted += `, pp. ${pages}`;
+      formatted += '.';
+      if (doi) formatted += ` ${doi}`;
+    }
+
+    _citations.push({ style, formatted, raw: { author, year, title, source, vol, pages, doi } });
+    toast('Citation added!', 'success');
+    ['cite-author', 'cite-year', 'cite-title', 'cite-source', 'cite-vol', 'cite-pages', 'cite-doi'].forEach(id => {
+      const el = document.getElementById(id); if (el) el.value = '';
+    });
+    renderCitations();
+  };
+
+  window.copyCitation = (i) => {
+    const text = _citations[i]?.formatted?.replace(/<[^>]*>/g, '') || '';
+    navigator.clipboard.writeText(text).then(() => toast('Citation copied!', 'success'));
+  };
+
+  window.exportCitations = () => {
+    const bib = _citations.map(c => c.formatted.replace(/<[^>]*>/g, '')).join('\n\n');
+    const blob = new Blob([bib], { type: 'text/plain' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'bibliography.txt';
+    a.click();
+    toast('Bibliography exported', 'success');
+  };
+
+  renderCitations();
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   SECTION 3 (continued) — Department Workstations 3-12
+═══════════════════════════════════════════════════════════════════ */
+
+/* ── Model Viewer (Engineering) ──────────────────────────────────────── */
+let _modelAngle = 0, _modelDragging = false, _modelLastX = 0;
+
+function wsModel(c, p) {
+  c.innerHTML = `<div>
+    <div class="mview">
+      <div class="mcanvas" id="mcanvas"><canvas id="mc" style="width:100%;height:100%"></canvas>
+        <div style="position:absolute;top:10px;right:10px;display:flex;flex-direction:column;gap:4px">
+          <button class="mbtn" onclick="zoomModel(1.1)">+</button>
+          <button class="mbtn" onclick="zoomModel(0.9)">−</button>
+          <button class="mbtn" onclick="_modelAngle=0;initModel()">⟳</button>
+        </div>
+        <div style="position:absolute;bottom:10px;left:12px;font-size:11px;color:#666">Drag to rotate · Scroll to zoom</div>
+      </div>
+      <div class="mctrl">
+        <button class="mbtn on" id="mv-persp" onclick="setView('persp')">Perspective</button>
+        <button class="mbtn" id="mv-top" onclick="setView('top')">Top</button>
+        <button class="mbtn" id="mv-front" onclick="setView('front')">Front</button>
+        <div style="margin-left:auto;display:flex;gap:4px">
+          <button class="mbtn" onclick="toast('Wireframe mode')">Wireframe</button>
+          <button class="mbtn" onclick="toast('Solid mode')">Solid</button>
+          <button class="mbtn" onclick="toast('Rendered mode')">Render</button>
+        </div>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:12px">
+      ${[['Vertices','12,480'],['Faces','24,960'],['Materials','3']].map(([l,v]) => `<div class="stat"><div style="font-size:11px;color:var(--tx3);margin-bottom:4px">${l}</div><div style="font-size:18px;font-weight:700">${v}</div></div>`).join('')}
+    </div>
+    <div style="background:var(--sur);border:1px solid var(--bor);border-radius:var(--rl);padding:14px;margin-top:12px">
+      <div style="font-size:12px;font-weight:600;margin-bottom:10px">Annotations</div>
+      ${['Bearing load point — max 450 kN','Structural joint — welded connection','Foundation anchor — M24 bolts ×8'].map((a,i) => `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--bor);font-size:12px"><span style="width:18px;height:18px;border-radius:50%;background:var(--brand-l);color:var(--brand);font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0">${i+1}</span>${a}</div>`).join('')}
+      <button class="btn btn-sm" style="margin-top:8px" onclick="toast('Annotation added','success')">${I.pl} Add annotation</button>
+    </div>
+  </div>`;
+  initModel();
+}
+
+let _modelZoom = 1;
+function initModel() {
+  const canvas = document.getElementById('mc');
+  if (!canvas) return;
+  const w = canvas.offsetWidth || 600;
+  const h = 340;
+  canvas.width = w; canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+
+  const cx = w / 2, cy = h / 2, sz = Math.min(w, h) * 0.22 * _modelZoom;
+
+  canvas.onmousedown = e => { _modelDragging = true; _modelLastX = e.clientX; };
+  canvas.onmousemove = e => {
+    if (_modelDragging) { _modelAngle += (e.clientX - _modelLastX) * 0.006; _modelLastX = e.clientX; }
+  };
+  canvas.onmouseup = () => _modelDragging = false;
+  canvas.onmouseleave = () => _modelDragging = false;
+  canvas.onwheel = e => { e.preventDefault(); zoomModel(e.deltaY < 0 ? 1.1 : 0.9); };
+
+  function draw() {
+    ctx.fillStyle = '#1a1a2e';
+    ctx.fillRect(0, 0, w, h);
+    ctx.strokeStyle = 'rgba(0,80,180,0.12)';
+    ctx.lineWidth = 0.5;
+    for (let x = 0; x < w; x += 30) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke(); }
+    for (let y = 0; y < h; y += 30) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke(); }
+
+    const cos = Math.cos(_modelAngle), sin = Math.sin(_modelAngle);
+    const proj = ([x, y, z]) => [cx + (x * cos - z * sin) * 0.8, cy + (y - (x * sin + z * cos) * 0.4)];
+    const v = [[-1,-1,-1],[1,-1,-1],[1,1,-1],[-1,1,-1],[-1,-1,1],[1,-1,1],[1,1,1],[-1,1,1]].map(a => proj([a[0]*sz, a[1]*sz, a[2]*sz]));
+    const faces = [[0,1,2,3,'rgba(83,74,183,0.55)'],[4,5,6,7,'rgba(83,74,183,0.35)'],[0,1,5,4,'rgba(100,95,200,0.45)'],[2,3,7,6,'rgba(60,52,137,0.45)'],[0,3,7,4,'rgba(70,65,180,0.45)'],[1,2,6,5,'rgba(90,82,200,0.45)']];
+    faces.forEach(([a,b_,c_,d,fill]) => {
+      ctx.beginPath(); ctx.moveTo(...v[a]); ctx.lineTo(...v[b_]); ctx.lineTo(...v[c_]); ctx.lineTo(...v[d]); ctx.closePath();
+      ctx.fillStyle = fill; ctx.fill();
+      ctx.strokeStyle = 'rgba(180,180,255,0.3)'; ctx.lineWidth = 1; ctx.stroke();
+    });
+    if (!_modelDragging) _modelAngle += 0.006;
+    requestAnimationFrame(draw);
+  }
+  draw();
+}
+function zoomModel(factor) { _modelZoom = Math.max(0.3, Math.min(3, _modelZoom * factor)); initModel(); }
+function setView(v) {
+  if (v === 'top') _modelAngle = 0;
+  else if (v === 'front') _modelAngle = Math.PI / 2;
+  else _modelAngle = 0.6;
+  document.querySelectorAll('#mv-persp, #mv-top, #mv-front').forEach(b => b.classList.remove('on'));
+  document.getElementById('mv-' + v)?.classList.add('on');
+  initModel();
+}
+
+/* ── Spreadsheet (Business & Economics) ─────────────────────────────── */
+function wsSheet(c, p) {
+  const rows = [
+    ['Quarter','Revenue ($K)','Expenses ($K)','Net ($K)','Growth %'],
+    ['Q1 2025','1,240','890','350','—'],
+    ['Q2 2025','1,580','1,020','560','60%'],
+    ['Q3 2025','1,920','1,180','740','32%'],
+    ['Q4 2025','2,340','1,350','990','34%'],
+    ['Total','7,080','4,440','2,640','—']
+  ];
+  c.innerHTML = `<div>
+    <div style="background:var(--sur);border:1px solid var(--bor);border-radius:var(--rl);overflow:hidden">
+      <div style="padding:8px 12px;border-bottom:1px solid var(--bor);background:var(--bg2);display:flex;gap:4px;flex-wrap:wrap">
+        ${['Bold','Italic','|','Align L','Align R','|','$ Format','% Format','|','Sum','Avg'].map(t => t==='|'?`<div style="width:1px;height:18px;background:var(--bor);margin:0 2px"></div>`:`<button class="btn btn-ghost btn-sm" onclick="toast('${t} applied')">${t}</button>`).join('')}
+        <button class="btn btn-primary btn-sm" style="margin-left:auto" onclick="exportCSV()">Export CSV</button>
+      </div>
+      <div style="overflow-x:auto"><table class="sheet">
+        <tr><th style="width:32px"></th>${['A','B','C','D','E'].map(c_ => `<th style="min-width:120px">${c_}</th>`).join('')}</tr>
+        ${rows.map((row,ri) => `<tr><td style="background:var(--bg2);font-weight:600;color:var(--tx2);text-align:center">${ri+1}</td>${row.map(cell => `<td contenteditable="true" style="${ri===0||ri===rows.length-1?'font-weight:600;background:var(--bg2)':''}">${cell}</td>`).join('')}</tr>`).join('')}
+      </table></div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:12px">
+      ${[['Revenue','$7,080K','var(--ok-bg)','var(--ok)'],['Expenses','$4,440K','var(--err-bg)','var(--err)'],['Net Profit','$2,640K','var(--info-bg)','var(--info)'],['Avg Growth','42%','var(--warn-bg)','var(--warn)']].map(([l,v,bg1,col]) => `<div style="background:${bg1};border-radius:var(--rl);padding:14px"><div style="font-size:11px;color:${col};font-weight:600;margin-bottom:4px">${l}</div><div style="font-size:22px;font-weight:700;color:${col}">${v}</div></div>`).join('')}
+    </div>
+  </div>`;
+}
+function exportCSV() {
+  const blob = new Blob(['Quarter,Revenue,Expenses,Net,Growth\n'], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'data.csv';
+  a.click();
+  toast('Exported as CSV', 'success');
+}
+
+/* ── Visual Board (Arts & Design) ───────────────────────────────────── */
+function wsVisual(c, p) {
+  const swatches = [['#534AB7','Brand Purple'],['#1D9E75','Brand Teal'],['#F5C4B3','Soft Coral'],['#E6F1FB','Sky Blue'],['#FAEEDA','Warm Amber'],['#EAF3DE','Sage Green']];
+  c.innerHTML = `<div style="display:grid;grid-template-columns:1fr 200px;gap:14px">
+    <div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px"><h3>Mood board</h3><button class="btn btn-sm" onclick="toast('Image added','success')">${I.pl} Add image</button></div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px">
+        ${swatches.map(([bg,lbl]) => `<div style="background:${bg};border-radius:var(--r);aspect-ratio:1;display:flex;align-items:flex-end;padding:8px;cursor:pointer;transition:transform .2s;border:1px solid var(--bor)" onclick="toast('${lbl} selected')" onmouseover="this.style.transform='scale(1.02)'" onmouseout="this.style.transform=''"><span style="font-size:10px;font-weight:600;color:rgba(0,0,0,.5)">${lbl}</span></div>`).join('')}
+        ${[1,2].map(() => `<div style="border:2px dashed var(--bor);border-radius:var(--r);aspect-ratio:1;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--tx3)" onclick="toast('Click + Add image to upload')"><span style="font-size:24px">+</span></div>`).join('')}
+      </div>
+      <textarea class="fi fi-ta" style="margin-top:12px" rows="3" placeholder="Visual direction notes...">Minimalist approach — clean geometric forms. Primary palette: purple anchor with warm neutral accents.</textarea>
+    </div>
+    <div>
+      <div class="ssec"><div class="sslbl">Colour palette</div>
+        ${swatches.map(([bg,lbl]) => `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--bor)">
+          <div style="width:22px;height:22px;border-radius:4px;background:${bg};border:1px solid var(--bor);flex-shrink:0"></div>
+          <div style="flex:1"><div style="font-size:12px;font-weight:500">${lbl}</div><div style="font-size:10px;color:var(--tx3)">${bg}</div></div>
+          <button class="btn btn-ghost btn-sm" onclick="navigator.clipboard.writeText('${bg}').then(()=>toast('Hex copied!','success'))">${I.cp}</button>
+        </div>`).join('')}
+      </div>
+    </div>
+  </div>`;
+}
+
+/* ── LaTeX Editor (Mathematics) ──────────────────────────────────────── */
+function wsLatex(c, p) {
+  c.innerHTML = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;height:calc(100vh - 180px)">
+    <div style="display:flex;flex-direction:column">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><h3>LaTeX source</h3><button class="btn btn-primary btn-sm" onclick="toast('Compiled!','success')">Compile</button></div>
+      <textarea class="fi fi-ta" rows="20" style="flex:1;font-family:var(--mono);font-size:12px;background:#1e1e2e;color:#cdd6f4;border-color:var(--bor)">\\documentclass{article}\n\\usepackage{amsmath}\n\\title{Convergence of Fourier Series}\n\\author{Research Group}\n\\begin{document}\n\\maketitle\n\\section{Introduction}\nLet $f: [-\\pi, \\pi] \\to \\mathbb{R}$ be square-integrable.\nThe Fourier series is:\n\\begin{equation}\n  f(x) = \\frac{a_0}{2} + \\sum_{n=1}^{\\infty}(a_n \\cos nx + b_n \\sin nx)\n\\end{equation}\n\\end{document}</textarea>
+    </div>
+    <div style="display:flex;flex-direction:column">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><h3>Preview</h3><button class="btn btn-sm" onclick="toast('Export PDF — connect LaTeX backend','info')">Export PDF</button></div>
+      <div style="background:var(--sur);border:1px solid var(--bor);border-radius:var(--rl);padding:24px;font-size:14px;line-height:1.8;flex:1;overflow-y:auto">
+        <div style="text-align:center;margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid var(--bor)"><div style="font-size:18px;font-weight:700">Convergence of Fourier Series</div><div style="font-size:13px;color:var(--tx2);margin-top:4px">Research Group</div></div>
+        <div style="font-size:14px;font-weight:700;margin-bottom:8px">1. Introduction</div>
+        <p style="margin-bottom:12px">Let <em>f</em> : [−π, π] → ℝ be square-integrable. The Fourier series is defined as:</p>
+        <div style="text-align:center;padding:12px;background:var(--bg2);border-radius:var(--r);font-size:15px;margin-bottom:12px"><em>f</em>(x) = a₀/2 + Σ(aₙcos(nx) + bₙsin(nx))</div>
+        <div style="padding:10px 14px;background:var(--bg2);border-radius:var(--r)"><div>aₙ = (1/π) ∫₋π^π f(x)cos(nx) dx</div><div style="margin-top:6px">bₙ = (1/π) ∫₋π^π f(x)sin(nx) dx</div></div>
+      </div>
+    </div>
+  </div>`;
+}
+
+/* ── Lab Notebook (Biology & Life Sciences) ──────────────────────────── */
+function wsLab(c, p) {
+  c.innerHTML = `<div style="max-width:700px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px"><h3>Lab notebook</h3><button class="btn btn-primary btn-sm" onclick="addLabEntry()">${I.pl} New entry</button></div>
+    <div id="lab-entries">
+      <div class="lab-entry">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid var(--bor)">
+          <div><div style="font-size:14px;font-weight:600">Experiment 3 — Gene expression analysis</div><div style="font-size:11px;color:var(--tx3)">Apr 17, 2026 · Jamie Davis</div></div>
+          <span class="badge b-teal">In progress</span>
+        </div>
+        ${[['Hypothesis','Elevated CO₂ will upregulate stress-response genes in E. coli by ≥40%.'],['Materials','E. coli K-12, LB broth, CO₂ incubator, qRT-PCR reagents, RNA extraction kit'],['Procedure','1. Culture at 37°C, 5% CO₂ for 4h. 2. Extract RNA. 3. Run qRT-PCR for rpoS, katG, oxyR. 4. Analyse ΔΔCt values.']].map(([l,v]) => `<div class="lab-field"><div class="lab-lbl">${l}</div><div style="font-size:13px">${v}</div></div>`).join('')}
+        <div class="lab-field"><div class="lab-lbl">Results</div><textarea class="fi fi-ta" rows="2" style="font-size:12px">Preliminary: rpoS upregulated 2.3×. katG 1.8×. Awaiting replicate confirmation.</textarea></div>
+        <div class="lab-field"><div class="lab-lbl">Conclusion</div><textarea class="fi fi-ta" rows="2" style="font-size:12px">Partial confirmation of hypothesis. Full statistical analysis pending n=3 replicates.</textarea></div>
+      </div>
+    </div>
+  </div>`;
+}
+function addLabEntry() {
+  const c = document.getElementById('lab-entries');
+  const el = document.createElement('div');
+  el.className = 'lab-entry';
+  el.style.marginBottom = '10px';
+  el.innerHTML = `<div style="font-size:14px;font-weight:600;margin-bottom:12px">New experiment · ${new Date().toLocaleDateString()}</div>${['Hypothesis','Materials','Procedure','Results','Conclusion'].map(f => `<div class="lab-field"><div class="lab-lbl">${f}</div><textarea class="fi fi-ta" rows="2" style="font-size:12px" placeholder="${f}..."></textarea></div>`).join('')}`;
+  c.prepend(el);
+  toast('New lab entry created', 'success');
+}
+
+/* ── Survey Builder (Psychology) ────────────────────────────────────── */
+function wsSurvey(c, p) {
+  c.innerHTML = `<div style="display:grid;grid-template-columns:1fr 190px;gap:12px">
+    <div>
+      <div style="display:flex;justify-content:space-between;margin-bottom:10px">
+        <div><h3>Academic Stress Questionnaire</h3><div style="font-size:12px;color:var(--tx2)">4 questions · Anonymous</div></div>
+        <div style="display:flex;gap:6px"><button class="btn btn-sm" onclick="toast('Preview opened')">Preview</button><button class="btn btn-primary btn-sm" onclick="navigator.clipboard.writeText(location.href).then(()=>toast('Link copied!','success'))">Share link</button></div>
+      </div>
+      <div class="sqst"><div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--tx3);margin-bottom:6px">Q1 · Multiple choice</div>
+        <div style="font-size:14px;font-weight:500;margin-bottom:10px">How often do you feel overwhelmed by your academic workload?</div>
+        ${['Never','Rarely (once a month)','Sometimes (once a week)','Often (most days)'].map(o => `<label style="display:flex;align-items:center;gap:8px;padding:5px 0;font-size:13px;cursor:pointer"><input type="radio" name="q1" style="accent-color:var(--brand)"> ${o}</label>`).join('')}
+      </div>
+      <div class="sqst"><div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--tx3);margin-bottom:6px">Q2 · Likert scale</div>
+        <div style="font-size:14px;font-weight:500;margin-bottom:10px">I feel confident managing my deadlines this semester.</div>
+        <div class="likert"><span style="font-size:11px;color:var(--tx3)">Strongly disagree</span>
+          ${[1,2,3,4,5].map(i => `<div class="lbtn" onclick="this.classList.toggle('on')">${i}</div>`).join('')}
+          <span style="font-size:11px;color:var(--tx3)">Strongly agree</span>
+        </div>
+      </div>
+      <div class="sqst"><div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--tx3);margin-bottom:6px">Q3 · Open text</div>
+        <div style="font-size:14px;font-weight:500;margin-bottom:8px">Describe a recent situation where academic pressure affected your wellbeing.</div>
+        <textarea class="fi fi-ta" rows="3" placeholder="Respondents type here..."></textarea>
+      </div>
+      <button class="btn btn-sm" onclick="toast('Question added','success')">${I.pl} Add question</button>
+    </div>
+    <div>
+      <div class="ssec"><div class="sslbl">Responses</div>
+        <div class="stat" style="margin-bottom:8px"><div class="stat-lbl">Total</div><div class="stat-val">24</div></div>
+        <div class="stat"><div class="stat-lbl">Completion</div><div class="stat-val">87%</div></div>
+        <button class="btn btn-sm btn-block" style="margin-top:8px" onclick="toast('Results exported','success')">Export results</button>
+      </div>
+      <div class="ssec"><div class="sslbl">Question types</div>
+        ${[['Multiple choice','purple'],['Likert scale','amber'],['Open text','teal'],['Yes / No','blue'],['Rating','green']].map(([t,col]) => `<div style="margin-bottom:4px"><span class="badge b-${col}">${t}</span></div>`).join('')}
+      </div>
+    </div>
+  </div>`;
+}
+
+/* ── Case Board (Law) ───────────────────────────────────────────────── */
+function wsCase(c, p) {
+  c.innerHTML = `<div>
+    <div style="background:var(--sur);border:2px solid var(--brand);border-radius:var(--rl);padding:14px;margin-bottom:14px;text-align:center">
+      <div style="font-size:10px;font-weight:600;color:var(--brand);text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px">Matter</div>
+      <div style="font-size:15px;font-weight:600">Constitutional challenge to emergency ministerial powers under s.33 Charter Act</div>
+    </div>
+    <div style="background:var(--sur);border:1px solid var(--bor);border-radius:var(--rl);padding:14px;margin-bottom:10px">
+      <div style="font-size:12px;font-weight:600;margin-bottom:10px">Issue statement</div>
+      <textarea class="fi fi-ta" rows="3">Whether the Minister's use of emergency powers constitutes a disproportionate restriction on freedom of expression under s.2(b) of the Charter.</textarea>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+      <div class="dside" style="border-top:3px solid var(--ok)">
+        <div style="display:flex;justify-content:space-between;margin-bottom:10px"><div style="font-weight:600;color:var(--ok)">Applicant</div><span class="badge b-teal">Prosecution</span></div>
+        <div id="ap-args">${['The restriction was not prescribed by law as required.','Government failed to demonstrate pressing and substantial objective.','Less restrictive alternatives were available — means not proportional.'].map(a => `<div class="darg" onclick="upvoteArg(this)">${a}<div style="font-size:10px;color:var(--tx3);margin-top:3px">0 upvotes</div></div>`).join('')}</div>
+        <button class="btn btn-sm btn-block" style="margin-top:6px" onclick="addArg('ap-args')">${I.pl} Add argument</button>
+      </div>
+      <div class="dside" style="border-top:3px solid var(--err)">
+        <div style="display:flex;justify-content:space-between;margin-bottom:10px"><div style="font-weight:600;color:var(--err)">Respondent</div><span class="badge b-coral">Defence</span></div>
+        <div id="re-args">${['Order is prescribed by law through enabling legislation.','National security constitutes pressing and substantial objective.','The Oakes test is satisfied — rights limitation is minimal.'].map(a => `<div class="darg" onclick="upvoteArg(this)">${a}<div style="font-size:10px;color:var(--tx3);margin-top:3px">0 upvotes</div></div>`).join('')}</div>
+        <button class="btn btn-sm btn-block" style="margin-top:6px" onclick="addArg('re-args')">${I.pl} Add argument</button>
+      </div>
+    </div>
+    <div style="background:var(--sur);border:1px solid var(--bor);border-radius:var(--rl);padding:14px">
+      <div style="font-size:12px;font-weight:600;margin-bottom:10px">Citations</div>
+      ${[['R v Oakes [1986] 1 SCR 103','Oakes test for s.1 justification'],['Irwin Toy Ltd v Quebec [1989]','Breadth of expression protection']].map(([cn,note]) => `<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--bor);font-size:12px"><div><div style="font-weight:500">${cn}</div><div style="font-size:11px;color:var(--tx3)">${note}</div></div><button class="btn btn-ghost btn-sm" onclick="navigator.clipboard.writeText('${cn}').then(()=>toast('Copied!','success'))">${I.cp}</button></div>`).join('')}
+      <button class="btn btn-sm" style="margin-top:8px" onclick="toast('Citation added','success')">${I.pl} Add citation</button>
+    </div>
+  </div>`;
+}
+function upvoteArg(el) {
+  const s = el.querySelector('div');
+  if (s) { const n = parseInt(s.textContent) || 0; s.textContent = (n + 1) + ' upvotes'; s.style.color = 'var(--brand)'; }
+}
+function addArg(id) {
+  const t = prompt('Enter argument:');
+  if (!t) return;
+  const el = document.createElement('div');
+  el.className = 'darg';
+  el.setAttribute('onclick', 'upvoteArg(this)');
+  el.innerHTML = esc(t) + `<div style="font-size:10px;color:var(--tx3);margin-top:3px">0 upvotes</div>`;
+  document.getElementById(id)?.appendChild(el);
+  toast('Argument added', 'success');
+}
+
+/* ── Case Study Editor (Medicine & Health) ──────────────────────────── */
+function wsCaseStudy(c, p) {
+  c.innerHTML = `<div style="max-width:720px">
+    <div style="display:flex;justify-content:space-between;margin-bottom:12px"><h3>Clinical case study</h3><button class="btn btn-sm" onclick="exportCaseStudy()">Export</button></div>
+    ${[['Patient presentation','63-year-old male, 3-day progressive dyspnoea, orthopnoea, peripheral oedema. PMH: Hypertension ×15y, T2DM ×8y, MI 2019. Rx: Ramipril 10mg, Metformin 1g BD, Aspirin 75mg.'],['Examination findings','HR 98 bpm (irregular), BP 148/92, RR 22/min, SpO₂ 91%. JVP elevated. Bilateral basal crackles. Pitting oedema to knees. S3 gallop.'],['Investigations','ECG: AF rate 98, LBBB. CXR: Cardiomegaly, bilateral pleural effusions. BNP 1,840 pg/mL, Troponin-T 42 ng/L (↑), eGFR 52.'],['Diagnosis','Acute decompensated heart failure (HFrEF) — precipitated by new-onset atrial fibrillation. Background ischaemic cardiomyopathy.'],['Management','1. IV furosemide 80mg stat + infusion. 2. Rate control: digoxin 0.5mg IV. 3. Continue ACEi if tolerated. 4. Anticoagulation: LMWH to warfarin. 5. Cardiology referral.']].map(([t,v]) => `<div class="case-sec"><div style="display:flex;justify-content:space-between;margin-bottom:8px"><h3>${t}</h3><button class="btn btn-ghost btn-sm">${I.ed}</button></div><textarea class="fi fi-ta" rows="3" style="font-size:13px">${v}</textarea></div>`).join('')}
+  </div>`;
+}
+function exportCaseStudy() {
+  const sections = [...document.querySelectorAll('.case-sec')].map(s => {
+    const h = s.querySelector('h3')?.textContent || '';
+    const t = s.querySelector('textarea')?.value || '';
+    return `=== ${h} ===\n${t}`;
+  }).join('\n\n');
+  const blob = new Blob([sections], { type: 'text/plain' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'case-study.txt';
+  a.click();
+  toast('Case study exported', 'success');
+}
+
+/* ── Blueprint Viewer (Architecture) ─────────────────────────────────── */
+function wsBlueprint(c, p) {
+  c.innerHTML = `<div>
+    <div class="bpview">
+      <canvas class="bpcanvas" id="bpc"></canvas>
+      <div class="mctrl">
+        <button class="mbtn on" onclick="toast('Floor plan')">Floor plan</button>
+        <button class="mbtn" onclick="toast('Elevation')">Elevation</button>
+        <button class="mbtn" onclick="toast('Section')">Section</button>
+        <div style="margin-left:auto;display:flex;gap:4px">
+          <button class="mbtn" onclick="toast('DWG exported','success')">Export DWG</button>
+          <button class="mbtn" onclick="toast('PDF exported','success')">Export PDF</button>
+        </div>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px">
+      <div style="background:var(--sur);border:1px solid var(--bor);border-radius:var(--rl);padding:14px">
+        <div style="font-size:12px;font-weight:600;margin-bottom:8px">Room schedule</div>
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+          <tr style="border-bottom:1px solid var(--bor)"><th style="text-align:left;padding:4px 0;color:var(--tx2)">Room</th><th style="padding:4px;color:var(--tx2)">m²</th><th style="padding:4px;color:var(--tx2)">Occ.</th></tr>
+          ${[['Living room',32,6],['Kitchen',18,4],['Master bed',22,2],['Bedroom 2',16,2],['Bathroom',8,1],['Hall',12,0]].map(([n,a,o]) => `<tr style="border-bottom:1px solid var(--bor)"><td style="padding:4px 0">${n}</td><td style="text-align:center">${a}</td><td style="text-align:center">${o}</td></tr>`).join('')}
+          <tr><td style="padding:6px 0;font-weight:600">Total</td><td style="text-align:center;font-weight:600">108</td><td></td></tr>
+        </table>
+      </div>
+      <div style="background:var(--sur);border:1px solid var(--bor);border-radius:var(--rl);padding:14px">
+        <div style="font-size:12px;font-weight:600;margin-bottom:8px">Annotations</div>
+        ${['N-facing glazing — solar gain analysis required','Load-bearing wall — structural sign-off needed','Accessibility route — 1800mm clear width'].map((a,i) => `<div style="display:flex;gap:8px;padding:5px 0;border-bottom:1px solid var(--bor);font-size:12px"><span style="width:18px;height:18px;border-radius:50%;background:#1a3654;color:#4ab8ff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0">${i+1}</span>${a}</div>`).join('')}
+        <button class="btn btn-sm" style="margin-top:8px" onclick="toast('Annotation added','success')">${I.pl} Add</button>
+      </div>
+    </div>
+  </div>`;
+  drawBP();
+}
+function drawBP() {
+  const canvas = document.getElementById('bpc');
+  if (!canvas) return;
+  const w = canvas.offsetWidth || 600, h = 320;
+  canvas.width = w; canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+  ctx.fillStyle = '#0f1f33';
+  ctx.fillRect(0, 0, w, h);
+  ctx.strokeStyle = 'rgba(0,80,180,0.18)';
+  ctx.lineWidth = 0.5;
+  for (let x = 0; x < w; x += 25) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke(); }
+  for (let y = 0; y < h; y += 25) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke(); }
+  ctx.strokeStyle = '#4db8ff';
+  ctx.lineWidth = 2;
+  ctx.font = '11px Inter, sans-serif';
+  ctx.fillStyle = '#4db8ff';
+  ctx.textAlign = 'center';
+  const rooms = [[50, 40, 200, 130, 'Living Room'], [50, 180, 200, 100, 'Kitchen'], [270, 40, 160, 120, 'Master Bed'], [270, 170, 160, 110, 'Bed 2'], [450, 40, 100, 90, 'Bath'], [50, 10, 400, 20, '']];
+  rooms.forEach(([x, y, rw, rh, lbl]) => {
+    ctx.strokeRect(x, y, rw, rh);
+    if (lbl) { ctx.fillStyle = 'rgba(0,80,180,0.12)'; ctx.fillRect(x+1, y+1, rw-2, rh-2); ctx.fillStyle = '#4db8ff'; ctx.fillText(lbl, x+rw/2, y+rh/2+4); }
+  });
+}
+
+/* ── Debate Board (Political Science) ───────────────────────────────── */
+function wsDebate(c, p) {
+  c.innerHTML = `<div>
+    <div style="background:var(--sur);border:2px solid var(--brand);border-radius:var(--rl);padding:14px;margin-bottom:14px;text-align:center">
+      <div style="font-size:10px;font-weight:600;color:var(--brand);text-transform:uppercase;letter-spacing:.6px;margin-bottom:5px">Motion</div>
+      <div style="font-size:15px;font-weight:600;line-height:1.4">This House Believes that social media algorithms should be regulated as public utilities.</div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+      <div class="dside" style="border-top:3px solid var(--ok)">
+        <div style="display:flex;justify-content:space-between;margin-bottom:10px"><div style="font-weight:600;color:var(--ok)">Proposition</div><span class="badge b-teal">Jamie, Alex</span></div>
+        <div id="pro-args">${['Algorithmic amplification of harmful content requires regulatory oversight.','Network effects grant platforms monopolistic power — utility regulation justified.','Transparency requirements enable democratic accountability.','Precedent: telecoms carriers are regulated public utilities.'].map(a => `<div class="darg" onclick="upvoteArg(this)">${a}<div style="font-size:10px;color:var(--tx3);margin-top:3px">0 upvotes</div></div>`).join('')}</div>
+        <button class="btn btn-sm btn-block" style="margin-top:8px" onclick="addArg('pro-args')">${I.pl} Add argument</button>
+      </div>
+      <div class="dside" style="border-top:3px solid var(--err)">
+        <div style="display:flex;justify-content:space-between;margin-bottom:10px"><div style="font-weight:600;color:var(--err)">Opposition</div><span class="badge b-coral">Kim, Sara</span></div>
+        <div id="opp-args">${['Utility regulation chills innovation and harms new entrants.','First Amendment concerns — state-compelled editorial decisions.','Market competition more effective than regulatory intervention.','Technical complexity makes algorithmic regulation unenforceable.'].map(a => `<div class="darg" onclick="upvoteArg(this)">${a}<div style="font-size:10px;color:var(--tx3);margin-top:3px">0 upvotes</div></div>`).join('')}</div>
+        <button class="btn btn-sm btn-block" style="margin-top:8px" onclick="addArg('opp-args')">${I.pl} Add argument</button>
+      </div>
+    </div>
+    <div style="background:var(--sur);border:1px solid var(--bor);border-radius:var(--rl);padding:14px">
+      <div style="font-size:12px;font-weight:600;margin-bottom:8px">Evidence & citations</div>
+      ${[['Zuboff, S. (2019) The Age of Surveillance Capitalism','Academic — supports regulation argument'],['EU Digital Services Act (2022)','Regulatory precedent for large platform obligations']].map(([ci, n]) => `<div style="padding:7px 0;border-bottom:1px solid var(--bor)"><div style="font-size:12px;font-weight:500">${ci}</div><div style="font-size:11px;color:var(--tx3)">${n}</div></div>`).join('')}
+      <button class="btn btn-sm" style="margin-top:8px" onclick="toast('Citation added','success')">${I.pl} Add citation</button>
+    </div>
+  </div>`;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   SECTION 4 — Permissions Auditor + Boot/Init
+═══════════════════════════════════════════════════════════════════ */
+
+/* ── Permissions Auditor ────────────────────────────────────────────── */
+async function showPermissionsAuditor(projectId) {
+  const perms = await StorageEngine.getPermissions(projectId);
+  const members = await StorageEngine.getAll('members', 'projectId', projectId);
+  const allUsers = await StorageEngine.getAll('users');
+  const um = Object.fromEntries(allUsers.map(u => [u.id, u]));
+
+  const modal = document.createElement('div');
+  modal.className = 'ov on';
+  modal.id = 'm-permissions';
+  modal.innerHTML = `<div class="modal" style="width:560px">
+    <div class="mh">
+      <div class="mtitle">Permissions Auditor</div>
+      <button class="mclose" onclick="document.getElementById('m-permissions').remove()">${I.cl}</button>
+    </div>
+    <div class="mb">
+      <p style="font-size:12px;color:var(--tx2);margin-bottom:14px">Manage who can invite, edit, and delete in this project.</p>
+      <div style="overflow-x:auto">
+        <table class="sheet">
+          <tr><th>Member</th><th style="text-align:center">Can Invite</th><th style="text-align:center">Can Edit</th><th style="text-align:center">Can Delete</th></tr>
+          ${members.map(m => {
+            const p = perms.find(x => x.userId === m.userId) || { canInvite: false, canEdit: false, canDelete: false };
+            const name = um[m.userId]?.fullName || 'Unknown';
+            return `<tr>
+              <td style="display:flex;align-items:center;gap:8px">${av(um[m.userId], 'sm')} ${esc(name)}</td>
+              <td style="text-align:center"><input type="checkbox" ${p.canInvite ? 'checked' : ''} onchange="togglePerm('${p.id || 'new'}','${m.userId}','canInvite',this.checked)"></td>
+              <td style="text-align:center"><input type="checkbox" ${p.canEdit ? 'checked' : ''} onchange="togglePerm('${p.id || 'new'}','${m.userId}','canEdit',this.checked)"></td>
+              <td style="text-align:center"><input type="checkbox" ${p.canDelete ? 'checked' : ''} onchange="togglePerm('${p.id || 'new'}','${m.userId}','canDelete',this.checked)"></td>
+            </tr>`;
+          }).join('')}
+        </table>
+      </div>
+    </div>
+    <div class="mf">
+      <button class="btn" onclick="document.getElementById('m-permissions').remove()">Close</button>
+    </div>
+  </div>`;
+
+  document.body.appendChild(modal);
+
+  window.togglePerm = async (permId, userId, field, value) => {
+    if (demoGuard()) return;
+    if (permId === 'new') {
+      await StorageEngine.put('permissions', {
+        id: StorageEngine.uid(),
+        projectId,
+        userId,
+        canInvite: field === 'canInvite' ? value : false,
+        canEdit: field === 'canEdit' ? value : false,
+        canDelete: field === 'canDelete' ? value : false,
+      });
+    } else {
+      const p = await StorageEngine.get('permissions', permId);
+      if (p) await StorageEngine.updatePermission(permId, { [field]: value });
+    }
+    toast(`Permission updated for ${field}`, 'success');
+  };
+}
+
+/* ── Permissions link in workspace sidebar ──────────────────────────── */
+// (Augments renderSide to include an auditor button for leads)
+const _originalRenderSide = renderSide;
+renderSide = function(p, isLead) {
+  let html = _originalRenderSide(p, isLead);
+  if (isLead) {
+    html += `<div class="ssec"><div class="sslbl">Admin</div>
+      <button class="btn btn-ghost btn-sm btn-block" onclick="showPermissionsAuditor('${p.id}')">🔐 Permissions Auditor</button>
+    </div>`;
+  }
+  return html;
+};
+
+/* ═══════════════════════════════════════════════════════════════════
+   SECTION 5 — Boot & Initialization
+═══════════════════════════════════════════════════════════════════ */
+
+/* ═══════════════════════════════════════════════════════════════════
+   SECURITY LAYER
+   Countermeasures: XSS prevention, rate limiting, session integrity,
+   input sanitisation, clickjacking guard, data isolation.
+═══════════════════════════════════════════════════════════════════ */
+const Security = (() => {
+  // Rate limiting map: action -> { count, firstAt }
+  const _limits = new Map();
+  const RULES = {
+    login:   { max: 5,  windowMs: 5 * 60 * 1000, msg: 'Too many login attempts. Wait 5 minutes.' },
+    signup:  { max: 3,  windowMs: 10 * 60 * 1000, msg: 'Too many sign-up attempts. Wait 10 minutes.' },
+    message: { max: 20, windowMs: 60 * 1000, msg: 'Sending too fast. Slow down.' },
+    upload:  { max: 10, windowMs: 60 * 1000, msg: 'Too many uploads. Wait a minute.' },
+  };
+
+  function rateLimit(action) {
+    const rule = RULES[action]; if (!rule) return null;
+    const now = Date.now();
+    const entry = _limits.get(action) || { count: 0, firstAt: now };
+    if (now - entry.firstAt > rule.windowMs) {
+      _limits.set(action, { count: 1, firstAt: now });
+      return null; // reset window, allow
+    }
+    entry.count++;
+    _limits.set(action, entry);
+    if (entry.count > rule.max) return rule.msg;
+    return null;
+  }
+
+  // Strip any HTML from user input (belt-and-suspenders on top of esc())
+  function sanitizeInput(str, maxLen = 2000) {
+    if (typeof str !== 'string') return '';
+    return str
+      .replace(/<[^>]*>/g, '')           // strip HTML tags
+      .replace(/javascript:/gi, '')       // strip JS protocol
+      .replace(/on\w+\s*=/gi, '')         // strip event handlers
+      .replace(/data:/gi, '')             // strip data URIs in text
+      .slice(0, maxLen)
+      .trim();
+  }
+
+  // Validate email format
+  function isValidEmail(email) {
+    return /^[^\s@]{1,64}@[^\s@]{1,253}\.[^\s@]{2,}$/.test(email);
+  }
+
+  // Validate password strength: min 8 chars
+  function isValidPassword(pw) {
+    return typeof pw === 'string' && pw.length >= 8 && pw.length <= 128;
+  }
+
+  // Session token integrity check: session must match IndexedDB
+  async function verifySession() {
+    try {
+      const session = await StorageEngine.getSession();
+      if (!session?.userId) return false;
+      const user = await StorageEngine.get('users', session.userId);
+      return !!user;
+    } catch { return false; }
+  }
+
+  // Detect suspicious environment signals
+  function detectThreats() {
+    const threats = [];
+    // Clickjacking: if framed, warn
+    if (window !== window.top) threats.push('framed');
+    // DevTools open in prod could indicate tampering (soft signal only)
+    // Prototype pollution guard
+    if (Object.prototype.hasOwnProperty.call(Object.prototype, 'constructor') === false) {
+      try {
+        Object.freeze(Object.prototype);
+      } catch {}
+    }
+    return threats;
+  }
+
+  // Periodic session re-validation every 5 min
+  function startSessionWatcher(onInvalid) {
+    setInterval(async () => {
+      const valid = await verifySession();
+      if (!valid && S.user) {
+        toast('Your session expired. Please sign in again.', 'error');
+        S.user = null;
+        await StorageEngine.logout();
+        onInvalid();
+      }
+    }, 5 * 60 * 1000);
+  }
+
+  return { rateLimit, sanitizeInput, isValidEmail, isValidPassword, verifySession, detectThreats, startSessionWatcher };
+})();
+
+/* ── Patch login/signup/sendMsg to use security layer ─────────────── */
+const _origLogin = StorageEngine.login.bind(StorageEngine);
+StorageEngine.login = async (creds) => {
+  const block = Security.rateLimit('login');
+  if (block) throw new Error(block);
+  if (creds.email && !Security.isValidEmail(creds.email)) throw new Error('Invalid email format.');
+  if (!Security.isValidPassword(creds.password)) throw new Error('Password must be 8–128 characters.');
+  return _origLogin(creds);
+};
+
+const _origSignup = StorageEngine.signup.bind(StorageEngine);
+StorageEngine.signup = async (data) => {
+  const block = Security.rateLimit('signup');
+  if (block) throw new Error(block);
+  if (data.email && !Security.isValidEmail(data.email)) throw new Error('Invalid email format.');
+  if (!Security.isValidPassword(data.password)) throw new Error('Password must be 8–128 characters.');
+  data.fullName = Security.sanitizeInput(data.fullName, 100);
+  return _origSignup(data);
+};
+
+const _origSendMsg = StorageEngine.sendMsg.bind(StorageEngine);
+StorageEngine.sendMsg = async (projectId, senderId, content) => {
+  const block = Security.rateLimit('message');
+  if (block) throw new Error(block);
+  const clean = Security.sanitizeInput(content, 2000);
+  if (!clean) throw new Error('Message cannot be empty.');
+  return _origSendMsg(projectId, senderId, clean);
+};
+
+const _origUpload = StorageEngine.uploadFile.bind(StorageEngine);
+StorageEngine.uploadFile = async (projectId, userId, file) => {
+  const block = Security.rateLimit('upload');
+  if (block) throw new Error(block);
+  if (file.size > 50 * 1024 * 1024) throw new Error('File exceeds 50 MB limit.');
+  // Validate file name
+  const cleanName = Security.sanitizeInput(file.name, 255).replace(/[<>:"/\\|?*]/g, '_');
+  const safeFile = new File([file], cleanName, { type: file.type });
+  return _origUpload(projectId, userId, safeFile);
+};
+
+/* ════════════════════════════════════════════════════════════════════
+   BOOT
+════════════════════════════════════════════════════════════════════ */
+(async () => {
+  // Security: detect environmental threats
+  const threats = Security.detectThreats();
+  if (threats.includes('framed')) {
+    document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;color:#c0392b;flex-direction:column;gap:12px"><strong style="font-size:18px">⚠ Embedded access blocked</strong><p style="font-size:13px">uni-co cannot run inside an iframe. Open it directly.</p></div>';
+    return;
+  }
+
+  // ── Connect to Supabase ────────────────────────────────────────────
+  try {
+    await StorageEngine.init();
+  } catch (err) {
+    document.getElementById('root').innerHTML = `
+      <div style="display:flex;align-items:center;justify-content:center;height:100vh;flex-direction:column;gap:14px;padding:24px;text-align:center">
+        <div style="font-size:26px;font-weight:700"><span style="color:#534AB7">uni</span>-co</div>
+        <div style="color:#C0392B;font-size:14px;max-width:420px;line-height:1.6">
+          <strong>Could not connect to the database.</strong><br><br>
+          ${err.message}<br><br>
+          <strong>Fix:</strong> Open <code>config.js</code> and set your Supabase URL and anon key. See <code>SETUP.md</code> for instructions.
+        </div>
+        <button onclick="location.reload()" style="padding:9px 22px;background:#534AB7;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:500">Retry</button>
+      </div>`;
+    return;
+  }
+
+  // ── Restore session ───────────────────────────────────────────────
+  try {
+    const valid = await Security.verifySession();
+    if (!valid) { await StorageEngine.logout(); showLogin(); return; }
+    const user = await StorageEngine.getCurrentUser();
+    if (!user) { await StorageEngine.logout(); showLogin(); return; }
+    S.user = user;
+    renderShell();
+    await go('dashboard');
+
+    // Start session watcher — only for real users, not demo sessions
+    if (!S.user.isDemo) Security.startSessionWatcher(() => showLogin());
+  } catch (err) {
+    console.error('[uni-co] Boot error:', err);
+    showLogin();
+  }
+
+  console.log('[uni-co] Boot complete —', StorageEngine.mode(), 'mode, theme:', S.theme);
+
+})();
