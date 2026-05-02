@@ -257,6 +257,11 @@
   .udept { font-size: 12px; }
 }
 
+#app {
+  height: 100dvh;
+  overflow: hidden;
+}
+
 /* ══════════════════════════════════════════════════════════════════
    PHONE (≤ 600px)
 ══════════════════════════════════════════════════════════════════ */
@@ -502,6 +507,10 @@
 
   /* wsside is replaced by drawer; its av-stack is irrelevant */
   .wsside .av-stack { display: none; }
+}
+#app {
+  height: 100dvh;
+  overflow: hidden;
 }
 
 /* ══════════════════════════════════════════════════════════════════
