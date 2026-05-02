@@ -11,7 +11,7 @@
 /* ── Toasts: lift above bottom nav ───────────────────────────────── */
 @media (max-width: 900px) {
   #toasts {
-    bottom: calc(68px + env(safe-area-inset-bottom, 0px)) !important;
+    bottom: calc(80px + env(safe-area-inset-bottom, 0px)) !important;
     right: 12px !important;
     left: 12px !important;
     align-items: stretch !important;
@@ -78,6 +78,7 @@
   #main {
     height: auto !important;
     max-height: none !important;
+    min-height: calc(100dvh - var(--hh) - 64px);
     overflow-y: visible !important;
     -webkit-overflow-scrolling: touch;
     overscroll-behavior-y: contain;
@@ -171,6 +172,26 @@
     padding: 6px 0 max(8px, env(safe-area-inset-bottom, 8px));
     z-index: 100;
     box-shadow: 0 -1px 16px rgba(0,0,0,0.07);
+    /* Auto-hide transition */
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+                opacity   0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    will-change: transform;
+  }
+  /* Hidden state — slides down out of view */
+  #mob-nav.nav-hidden {
+    transform: translateY(100%);
+    opacity: 0;
+    pointer-events: none;
+  }
+  /* Visible state — snaps back */
+  #mob-nav.nav-visible {
+    transform: translateY(0);
+    opacity: 1;
+    pointer-events: auto;
+  }
+  /* Page padding adapts — default keeps full clearance */
+  .pg, .pg-full {
+    transition: padding-bottom 0.28s ease;
   }
 
   /* Settings nav */
@@ -197,7 +218,7 @@
 
   /* Page padding — extra bottom so content clears the fixed nav bar */
   .pg, .pg-full {
-    padding: 16px 14px calc(90px + env(safe-area-inset-bottom, 0px));
+    padding: 16px 14px calc(100px + env(safe-area-inset-bottom, 0px));
   }
 
   /* Form rows */
@@ -222,7 +243,7 @@
 
   /* Page padding */
   .pg, .pg-full {
-    padding: 14px 12px calc(96px + env(safe-area-inset-bottom, 0px));
+    padding: 14px 12px calc(106px + env(safe-area-inset-bottom, 0px));
   }
 
   /* Auth */
@@ -373,10 +394,11 @@
   /* Chat bubbles */
   [style*="max-width:68%"] { max-width: 84% !important; }
 
-  /* Chat height in workspace */
+  /* Chat height in workspace — let it grow naturally on mobile */
   #ws-main [style*="height:calc(100vh"] {
-    height: calc(100dvh - 54px - 52px - 44px - 64px - env(safe-area-inset-bottom, 0px)) !important;
-    min-height: 300px !important;
+    height: auto !important;
+    min-height: 380px !important;
+    max-height: calc(100dvh - var(--hh) - 52px - 48px - env(safe-area-inset-bottom, 0px)) !important;
   }
 
   /* Overflow prevention */
@@ -448,7 +470,7 @@
   .ph h1 { font-size: 17px; }
   .authcard { padding: 18px 12px 22px; }
   .tab { padding: 9px 10px; font-size: 12px; }
-  .pg, .pg-full { padding: 12px 10px calc(96px + env(safe-area-inset-bottom, 0px)); }
+  .pg, .pg-full { padding: 12px 10px calc(106px + env(safe-area-inset-bottom, 0px)); }
   .stats { grid-template-columns: 1fr 1fr !important; gap: 6px !important; }
   .stat-val { font-size: 22px; }
   .setni { font-size: 10px; min-width: 52px; }
