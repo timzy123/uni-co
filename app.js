@@ -1916,9 +1916,14 @@ async function showSettings() {
       <div class="setsec"><div class="setsec-t">Account</div><div class="setsec-d">Account details and actions.</div>
         ${[['Email', S.user.email || 'Not set'], ['Phone', S.user.phone || 'Not set'], ['Role', S.user.role], ['Member since', fmtD(S.user.createdAt)]].map(([l, v]) => `
         <div class="setrow"><div><div class="setrow-l">${l}</div><div class="setrow-d">${esc(v)}</div></div></div>`).join('')}
-        <div style="margin-top:18px;padding-top:18px;border-top:1px solid var(--bor)">
-          <button class="btn btn-danger" onclick="doLogout()">${I.lo} Sign out</button>
+        <div style="margin-top:18px;padding-top:18px;border-top:1px solid var(--bor);display:flex;flex-direction:column;gap:10px">
+          <button class="btn btn-danger" onclick="doLogout()" style="align-self:flex-start">${I.lo} Sign out</button>
         </div>
+      </div>
+      <div class="setsec" style="border-color:var(--err-bg);margin-top:16px">
+        <div class="setsec-t" style="color:var(--err)">Danger zone</div>
+        <div class="setsec-d">Permanently delete your account and all associated data. This cannot be undone.</div>
+        <button class="btn btn-danger" onclick="deleteAccount()">Delete my account</button>
       </div>`,
   };
 
@@ -2013,7 +2018,51 @@ async function doLogout() {
   showLogin();
 }
 
-/* ── Modal Handlers (Project CRUD, Tasks) ──────────────────────────── */
+async function deleteAccount() {
+  if (demoGuard()) return;
+  const uid = S.user.id;
+  const name = S.user.fullName;
+
+  if (!confirm(`Delete your account?\n\nThis will permanently remove your profile, notifications, and project memberships. Project content you created will remain but be unattributed.\n\nThis cannot be undone.`)) return;
+
+  const typed = prompt(`To confirm, type your full name exactly:\n"${name}"`);
+  if (typed !== name) { toast('Name did not match. Account not deleted.', 'error'); return; }
+
+  try {
+    toast('Deleting account…');
+
+    // Remove memberships and permissions
+    const mems = await StorageEngine.getAll('members', 'userId', uid);
+    for (const m of mems) await StorageEngine.del('members', m.id);
+    const perms = await StorageEngine.getAll('permissions');
+    for (const p of perms.filter(p => p.userId === uid)) await StorageEngine.del('permissions', p.id);
+
+    // Remove notifications
+    const notifs = await StorageEngine.getAll('notifications', 'userId', uid);
+    for (const n of notifs) await StorageEngine.del('notifications', n.id);
+
+    // Anonymise messages (keep content, remove sender link)
+    const allMsgs = await StorageEngine.getAll('messages');
+    for (const msg of allMsgs.filter(m => m.senderId === uid)) {
+      await StorageEngine.put('messages', { ...msg, senderId: null });
+    }
+
+    // Remove quiz attempts
+    const attempts = await StorageEngine.getAll('quizAttempts');
+    for (const a of attempts.filter(a => a.userId === uid)) await StorageEngine.del('quizAttempts', a.id);
+
+    // Delete the user record
+    await StorageEngine.del('users', uid);
+    await StorageEngine.logout();
+
+    toast('Account permanently deleted.', 'success');
+    setTimeout(() => { S.user = null; showLogin(); }, 1400);
+  } catch(e) {
+    toast('Could not delete account: ' + e.message, 'error');
+  }
+}
+
+
 async function openNewProject(sourceEl) {
   if (demoGuard()) return;
   const depts = await StorageEngine.getDepts();
