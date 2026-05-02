@@ -274,6 +274,7 @@ const StorageEngine = (() => {
   // ── Public API (identical surface as the old IndexedDB engine) ─────
   return {
     mode: () => 'supabase',
+    _sb: () => sb(),
     init, seed, get, getAll, put, del, uid, now, genKey,
 
     // Session
@@ -698,6 +699,9 @@ window.go = async function go(page, data = {}) {
 
   showSkeleton(page);
 
+  // Re-attach nav scroll listener — #main content is replaced on every navigation
+  if (window._reattachNavMainListener) window._reattachNavMainListener();
+
   stopChatRealtime();
   if (page === 'dashboard') await showDashboard();
   else if (page === 'projects') await showProjects();
@@ -823,52 +827,55 @@ window.closeSidebar = function() {
    On page navigation the nav always resets to visible.
 ─────────────────────────────────────────────────────────────────── */
 function initNavAutoHide() {
-  if (window.innerWidth > 860) return; // desktop only uses sidebar
+  if (window.innerWidth > 860) return;
   const nav = document.getElementById('mob-nav');
   if (!nav) return;
 
+  // Only initialise the window scroll listener once
+  if (window._navAutoHideReady) {
+    // Re-attach #main listener after every navigation (DOM is replaced)
+    if (window._reattachNavMainListener) window._reattachNavMainListener();
+    return;
+  }
+  window._navAutoHideReady = true;
+
   let lastY = 0;
   let ticking = false;
-  let hideTimer = null;
   let isHidden = false;
+  let _mainEl = null;
 
-  // The scroll container is document (since #main is height:auto on mobile)
-  const scroller = document.documentElement;
+  const NO_HIDE_PAGES = ['settings', 'notifs', 'invite'];
 
   function showNav() {
     if (!isHidden) return;
     isHidden = false;
     nav.classList.remove('nav-hidden');
     nav.classList.add('nav-visible');
-    // Adjust page padding so content doesn't jump
-    document.querySelectorAll('.pg, .pg-full').forEach(el => {
-      el.style.transition = 'padding-bottom 0.28s ease';
-    });
   }
 
   function hideNav() {
     if (isHidden) return;
+    if (NO_HIDE_PAGES.includes(S.page)) return;
     isHidden = true;
     nav.classList.add('nav-hidden');
     nav.classList.remove('nav-visible');
   }
 
-  function onScroll() {
+  function onScroll(e) {
     if (ticking) return;
     ticking = true;
     requestAnimationFrame(() => {
-      const y = window.scrollY || scroller.scrollTop;
-      const maxScroll = scroller.scrollHeight - window.innerHeight;
+      const isWin = !e || !e.target || e.target === document || e.target === document.documentElement;
+      const el = isWin ? document.documentElement : e.target;
+      const y = isWin ? (window.scrollY || el.scrollTop) : el.scrollTop;
+      const maxScroll = el.scrollHeight - (isWin ? window.innerHeight : el.clientHeight);
       const delta = y - lastY;
 
-      // Always show near top or bottom
-      if (y < 60 || y >= maxScroll - 20) {
+      if (y < 80 || (maxScroll > 0 && y >= maxScroll - 40)) {
         showNav();
-      } else if (delta > 6) {
-        // Scrolling DOWN fast enough — hide
+      } else if (delta > 8) {
         hideNav();
-      } else if (delta < -4) {
-        // Scrolling UP — show
+      } else if (delta < -6) {
         showNav();
       }
 
@@ -877,32 +884,19 @@ function initNavAutoHide() {
     });
   }
 
-  // Listen on window (mobile pages scroll the body/html)
-  window.addEventListener('scroll', onScroll, { passive: true });
-
-  // Also watch #main in case it's the scroll container (workspace)
-  const main = document.getElementById('main');
-  if (main) {
-    main.addEventListener('scroll', onScroll, { passive: true });
-  }
-
-  // Tapping the hidden nav peeks it back out
-  nav.addEventListener('touchstart', () => { if (isHidden) showNav(); }, { passive: true });
-
-  // Always reset to visible on page navigation
-  const _origGo = window.go;
-  window.go = async function(page, data) {
+  // Re-attach to #main after each navigation (called from go() and renderShell)
+  window._reattachNavMainListener = function() {
+    if (_mainEl) { try { _mainEl.removeEventListener('scroll', onScroll); } catch(e) {} }
+    _mainEl = document.getElementById('main');
+    if (_mainEl) _mainEl.addEventListener('scroll', onScroll, { passive: true });
     showNav();
     lastY = 0;
-    return _origGo(page, data);
   };
 
-  // Store cleanup ref so re-runs don't stack listeners
-  if (window._navScrollCleanup) window._navScrollCleanup();
-  window._navScrollCleanup = () => {
-    window.removeEventListener('scroll', onScroll);
-    if (main) main.removeEventListener('scroll', onScroll);
-  };
+  window.addEventListener('scroll', onScroll, { passive: true });
+  window._reattachNavMainListener();
+
+  nav.addEventListener('touchstart', () => { if (isHidden) showNav(); }, { passive: true });
 }
 
 async function updateNBadge() {
