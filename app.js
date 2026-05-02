@@ -698,6 +698,7 @@ window.go = async function go(page, data = {}) {
 
   showSkeleton(page);
 
+  stopChatRealtime();
   if (page === 'dashboard') await showDashboard();
   else if (page === 'projects') await showProjects();
   else if (page === 'explore') await showExplore();
@@ -796,6 +797,7 @@ function renderShell() {
   // Show mobile nav only on small screens
   const mobNav = document.getElementById('mob-nav');
   if (mobNav) mobNav.style.display = window.innerWidth <= 860 ? 'block' : 'none';
+  initNavAutoHide();
 }
 
 function ni(page, label, icon, badgeId = '') {
@@ -813,6 +815,95 @@ window.closeSidebar = function() {
   document.getElementById('sidebar')?.classList.remove('open');
   document.getElementById('sidebar-overlay')?.classList.remove('on');
 };
+
+/* ── Auto-hide bottom nav on scroll ──────────────────────────────────
+   Hides nav when scrolling DOWN, reveals it when scrolling UP.
+   Always shows when near the top or bottom of the page.
+   Tapping anywhere on the hidden nav strip reveals it instantly.
+   On page navigation the nav always resets to visible.
+─────────────────────────────────────────────────────────────────── */
+function initNavAutoHide() {
+  if (window.innerWidth > 860) return; // desktop only uses sidebar
+  const nav = document.getElementById('mob-nav');
+  if (!nav) return;
+
+  let lastY = 0;
+  let ticking = false;
+  let hideTimer = null;
+  let isHidden = false;
+
+  // The scroll container is document (since #main is height:auto on mobile)
+  const scroller = document.documentElement;
+
+  function showNav() {
+    if (!isHidden) return;
+    isHidden = false;
+    nav.classList.remove('nav-hidden');
+    nav.classList.add('nav-visible');
+    // Adjust page padding so content doesn't jump
+    document.querySelectorAll('.pg, .pg-full').forEach(el => {
+      el.style.transition = 'padding-bottom 0.28s ease';
+    });
+  }
+
+  function hideNav() {
+    if (isHidden) return;
+    isHidden = true;
+    nav.classList.add('nav-hidden');
+    nav.classList.remove('nav-visible');
+  }
+
+  function onScroll() {
+    if (ticking) return;
+    ticking = true;
+    requestAnimationFrame(() => {
+      const y = window.scrollY || scroller.scrollTop;
+      const maxScroll = scroller.scrollHeight - window.innerHeight;
+      const delta = y - lastY;
+
+      // Always show near top or bottom
+      if (y < 60 || y >= maxScroll - 20) {
+        showNav();
+      } else if (delta > 6) {
+        // Scrolling DOWN fast enough — hide
+        hideNav();
+      } else if (delta < -4) {
+        // Scrolling UP — show
+        showNav();
+      }
+
+      lastY = y;
+      ticking = false;
+    });
+  }
+
+  // Listen on window (mobile pages scroll the body/html)
+  window.addEventListener('scroll', onScroll, { passive: true });
+
+  // Also watch #main in case it's the scroll container (workspace)
+  const main = document.getElementById('main');
+  if (main) {
+    main.addEventListener('scroll', onScroll, { passive: true });
+  }
+
+  // Tapping the hidden nav peeks it back out
+  nav.addEventListener('touchstart', () => { if (isHidden) showNav(); }, { passive: true });
+
+  // Always reset to visible on page navigation
+  const _origGo = window.go;
+  window.go = async function(page, data) {
+    showNav();
+    lastY = 0;
+    return _origGo(page, data);
+  };
+
+  // Store cleanup ref so re-runs don't stack listeners
+  if (window._navScrollCleanup) window._navScrollCleanup();
+  window._navScrollCleanup = () => {
+    window.removeEventListener('scroll', onScroll);
+    if (main) main.removeEventListener('scroll', onScroll);
+  };
+}
 
 async function updateNBadge() {
   if (!S.user) return;
@@ -1920,6 +2011,13 @@ async function showSettings() {
           <button class="btn btn-danger" onclick="doLogout()" style="align-self:flex-start">${I.lo} Sign out</button>
         </div>
       </div>
+      <div class="setsec" style="margin-top:16px">
+        <div class="setsec-t">🔔 Notifications</div>
+        <div class="setsec-d">Get notified about new messages and task updates, even when the app is in the background.</div>
+        <button class="btn btn-primary btn-sm" onclick="PushEngine.requestPermission()" style="margin-top:6px">
+          Enable push notifications
+        </button>
+      </div>
       <div class="setsec" style="border-color:var(--err-bg);margin-top:16px">
         <div class="setsec-t" style="color:var(--err)">Danger zone</div>
         <div class="setsec-d">Permanently delete your account and all associated data. This cannot be undone.</div>
@@ -2675,16 +2773,38 @@ async function addFileTag(fileId) {
   reloadWs();
 }
 
-/* ── Chat (Fix 2+3: avatars both sides, delete own messages, proper layout) ── */
+/* ══════════════════════════════════════════════════════════════════
+   REAL-TIME CHAT — Supabase channels + typing indicators + reactions
+══════════════════════════════════════════════════════════════════ */
+
+// Active real-time channel reference (cleaned up on navigation)
+window._chatChannel = null;
+window._typingTimer  = null;
+window._typingUsers  = {};   // { userId: { name, ts } }
+
 function renderChat(container, p) {
-  const u = S.user;
+  const u      = S.user;
   const isLead = p.members?.some(m => m.userId === u.id && m.role === 'LEAD');
 
-  container.innerHTML = `<div style="display:flex;flex-direction:column;height:calc(100vh - 190px);min-height:400px;background:var(--sur);border:1px solid var(--bor);border-radius:var(--rl);overflow:hidden">
-    <div style="padding:10px 14px;border-bottom:1px solid var(--bor);background:var(--bg2);font-size:13px;font-weight:600;color:var(--tx2);flex-shrink:0">
-      💬 Team chat · ${p.members?.length || 0} members
+  container.innerHTML = `
+  <div style="display:flex;flex-direction:column;height:calc(100vh - 190px);min-height:400px;
+              background:var(--sur);border:1px solid var(--bor);border-radius:var(--rl);overflow:hidden">
+
+    <!-- Header -->
+    <div style="padding:10px 14px;border-bottom:1px solid var(--bor);background:var(--bg2);
+                display:flex;align-items:center;justify-content:space-between;flex-shrink:0">
+      <div style="font-size:13px;font-weight:600;color:var(--tx2)">
+        💬 Team chat · ${p.members?.length || 0} members
+      </div>
+      <div id="chat-status" style="font-size:11px;color:var(--ok);font-weight:500;display:flex;align-items:center;gap:4px">
+        <span style="width:6px;height:6px;border-radius:50%;background:var(--ok);display:inline-block"></span>
+        Live
+      </div>
     </div>
-    <div id="msgs" style="flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:14px;scroll-behavior:smooth">
+
+    <!-- Messages -->
+    <div id="msgs" style="flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;
+                          gap:14px;scroll-behavior:smooth">
       ${(p.messages || []).length === 0
         ? `<div style="text-align:center;padding:40px 20px;color:var(--tx3);font-size:13px">
              <div style="font-size:28px;margin-bottom:8px">💬</div>
@@ -2692,13 +2812,26 @@ function renderChat(container, p) {
            </div>`
         : (p.messages || []).map(msg => chatBubbleHTML(msg, u.id, isLead)).join('')}
     </div>
-    <div style="padding:12px 14px;border-top:1px solid var(--bor);background:var(--sur);display:flex;gap:8px;align-items:center;flex-shrink:0">
+
+    <!-- Typing indicator -->
+    <div id="typing-bar" style="padding:0 16px 4px;font-size:11.5px;color:var(--tx3);
+                                 font-style:italic;min-height:20px;flex-shrink:0"></div>
+
+    <!-- Input bar -->
+    <div style="padding:10px 14px;border-top:1px solid var(--bor);background:var(--sur);
+                display:flex;gap:8px;align-items:center;flex-shrink:0">
       <input id="chat-in" placeholder="Message the team…"
-        style="flex:1;padding:10px 14px;border:1.5px solid var(--bor);border-radius:22px;background:var(--bg2);color:var(--tx);font-size:14px;outline:none;font-family:inherit;transition:border-color 0.2s"
-        onfocus="this.style.borderColor='var(--brand)'" onblur="this.style.borderColor='var(--bor)'"
+        style="flex:1;padding:10px 14px;border:1.5px solid var(--bor);border-radius:22px;
+               background:var(--bg2);color:var(--tx);font-size:14px;outline:none;
+               font-family:inherit;transition:border-color 0.2s"
+        onfocus="this.style.borderColor='var(--brand)'"
+        onblur="this.style.borderColor='var(--bor)'"
+        oninput="broadcastTyping('${p.id}')"
         onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendChat('${p.id}')}">
       <button onclick="sendChat('${p.id}')"
-        style="width:40px;height:40px;border-radius:50%;background:var(--brand);color:#fff;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all 0.2s"
+        style="width:40px;height:40px;border-radius:50%;background:var(--brand);color:#fff;
+               border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;
+               flex-shrink:0;transition:all 0.2s"
         onmouseover="this.style.background='var(--brand-d)';this.style.transform='scale(1.05)'"
         onmouseout="this.style.background='var(--brand)';this.style.transform=''">
         ${I.sd}
@@ -2709,6 +2842,132 @@ function renderChat(container, p) {
   const msgs = document.getElementById('msgs');
   if (msgs) msgs.scrollTop = msgs.scrollHeight;
   setTimeout(() => document.getElementById('chat-in')?.focus(), 100);
+
+  // Start real-time subscription
+  startChatRealtime(p.id, u.id, isLead);
+}
+
+/* ── Real-time subscription ────────────────────────────────────────── */
+function startChatRealtime(projectId, myUserId, isLead) {
+  // Clean up any previous channel
+  stopChatRealtime();
+
+  const sb = StorageEngine._sb ? StorageEngine._sb() : null;
+  if (!sb) return;
+
+  window._chatChannel = sb
+    .channel(`chat:${projectId}`)
+
+    // New message inserted in DB
+    .on('postgres_changes', {
+      event: 'INSERT', schema: 'public', table: 'messages',
+      filter: `project_id=eq.${projectId}`
+    }, async (payload) => {
+      const row = payload.new;
+      // Skip own messages (already rendered optimistically)
+      if (row.sender_id === myUserId) return;
+
+      // Fetch sender profile
+      const { data: senderRow } = await sb.from('users').select('*, departments(*)').eq('id', row.sender_id).single();
+      const sender = senderRow
+        ? { ...senderRow, fullName: senderRow.full_name, department: senderRow.departments }
+        : null;
+
+      const msg = {
+        id: row.id, content: row.content,
+        senderId: row.sender_id, sentAt: row.sent_at,
+        sender,
+      };
+
+      const msgs = document.getElementById('msgs');
+      if (!msgs) return;
+
+      // Remove empty state if present
+      const empty = msgs.querySelector('[data-empty]');
+      if (empty) empty.remove();
+
+      msgs.insertAdjacentHTML('beforeend', chatBubbleHTML(msg, myUserId, isLead));
+      msgs.scrollTop = msgs.scrollHeight;
+
+      // Clear that sender from typing
+      delete window._typingUsers[row.sender_id];
+      updateTypingBar();
+
+      // Push notification if tab is not visible
+      PushEngine.notifyIfHidden(
+        sender?.fullName || 'Team member',
+        row.content,
+        projectId
+      );
+    })
+
+    // Message deleted
+    .on('postgres_changes', {
+      event: 'DELETE', schema: 'public', table: 'messages',
+      filter: `project_id=eq.${projectId}`
+    }, (payload) => {
+      const row = document.querySelector(`.chat-msg-row[data-mid="${payload.old?.id}"]`);
+      if (row) { row.style.opacity = '0'; setTimeout(() => row.remove(), 200); }
+    })
+
+    // Typing broadcast (presence-style)
+    .on('broadcast', { event: 'typing' }, (payload) => {
+      const { userId, name } = payload.payload;
+      if (userId === myUserId) return;
+      window._typingUsers[userId] = { name, ts: Date.now() };
+      updateTypingBar();
+      // Auto-clear after 3 seconds of silence
+      setTimeout(() => {
+        if (window._typingUsers[userId] && Date.now() - window._typingUsers[userId].ts >= 2900) {
+          delete window._typingUsers[userId];
+          updateTypingBar();
+        }
+      }, 3000);
+    })
+
+    .subscribe((status) => {
+      const indicator = document.getElementById('chat-status');
+      if (!indicator) return;
+      if (status === 'SUBSCRIBED') {
+        indicator.innerHTML = '<span style="width:6px;height:6px;border-radius:50%;background:var(--ok);display:inline-block"></span> Live';
+        indicator.style.color = 'var(--ok)';
+      } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+        indicator.innerHTML = '<span style="width:6px;height:6px;border-radius:50%;background:var(--err);display:inline-block"></span> Reconnecting…';
+        indicator.style.color = 'var(--err)';
+      }
+    });
+}
+
+function stopChatRealtime() {
+  if (window._chatChannel) {
+    try { window._chatChannel.unsubscribe(); } catch(e) {}
+    window._chatChannel = null;
+  }
+  window._typingUsers = {};
+  clearTimeout(window._typingTimer);
+}
+
+/* ── Typing indicator ──────────────────────────────────────────────── */
+function broadcastTyping(projectId) {
+  const ch = window._chatChannel;
+  if (!ch) return;
+  ch.send({ type: 'broadcast', event: 'typing', payload: {
+    userId: S.user.id,
+    name: S.user.fullName,
+  }});
+  // Stop broadcasting after 2s of no input
+  clearTimeout(window._typingTimer);
+  window._typingTimer = setTimeout(() => {}, 2000);
+}
+
+function updateTypingBar() {
+  const bar = document.getElementById('typing-bar');
+  if (!bar) return;
+  const names = Object.values(window._typingUsers).map(u => u.name.split(' ')[0]);
+  if (names.length === 0) { bar.textContent = ''; return; }
+  if (names.length === 1) bar.textContent = `${names[0]} is typing…`;
+  else if (names.length === 2) bar.textContent = `${names[0]} and ${names[1]} are typing…`;
+  else bar.textContent = `${names.length} people are typing…`;
 }
 
 function chatBubbleHTML(msg, myId, isLead) {
@@ -2740,15 +2999,36 @@ async function sendChat(pid) {
   const txt = inp?.value?.trim();
   if (!txt) return;
   inp.value = '';
-  const msg = await StorageEngine.sendMsg(pid, S.user.id, txt);
-  const msgs = document.getElementById('msgs');
-  if (!msgs) return;
-  const el = document.createElement('div');
-  el.outerHTML; // noop
-  const p = window._wsProject;
+
+  // Optimistic render — show immediately without waiting for DB
+  const p      = window._wsProject;
   const isLead = p?.members?.some(m => m.userId === S.user.id && m.role === 'LEAD');
-  msgs.insertAdjacentHTML('beforeend', chatBubbleHTML({ ...msg, sender: S.user }, S.user.id, isLead));
-  msgs.scrollTop = msgs.scrollHeight;
+  const tempId  = 'tmp-' + Date.now();
+  const tempMsg = { id: tempId, content: txt, senderId: S.user.id, sentAt: new Date().toISOString(), sender: S.user };
+  const msgs    = document.getElementById('msgs');
+
+  if (msgs) {
+    // Remove empty state
+    const empty = msgs.querySelector('[data-empty]');
+    if (empty) empty.remove();
+    msgs.insertAdjacentHTML('beforeend', chatBubbleHTML(tempMsg, S.user.id, isLead));
+    msgs.scrollTop = msgs.scrollHeight;
+  }
+
+  try {
+    const saved = await StorageEngine.sendMsg(pid, S.user.id, txt);
+    // Update temp element with real ID
+    const tempEl = msgs?.querySelector(`[data-mid="${tempId}"]`);
+    if (tempEl) tempEl.setAttribute('data-mid', saved.id);
+  } catch(e) {
+    // Roll back on failure
+    const tempEl = msgs?.querySelector(`[data-mid="${tempId}"]`);
+    if (tempEl) {
+      tempEl.style.opacity = '0.4';
+      tempEl.title = 'Failed to send';
+    }
+    toast('Failed to send message', 'error');
+  }
 }
 
 async function deleteChatMsg(msgId) {
@@ -3841,4 +4121,120 @@ StorageEngine.uploadFile = async (projectId, userId, file) => {
 
   console.log('[uni-co] Boot complete —', StorageEngine.mode(), 'mode, theme:', S.theme);
 
+  // Initialise push notifications
+  PushEngine.init();
+
+  // Handle navigation messages from service worker (notification click)
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.addEventListener('message', e => {
+      if (e.data?.type === 'NAVIGATE' && e.data.url) {
+        const url = new URL(e.data.url, location.origin);
+        const ws  = url.searchParams.get('ws');
+        if (ws) go('ws', { id: ws });
+        else go('dashboard');
+      }
+    });
+  }
+
+})();
+
+/* ══════════════════════════════════════════════════════════════════
+   PUSH NOTIFICATION ENGINE
+   Uses the Web Push API + service worker to deliver notifications
+   even when the tab is in the background or the app is closed.
+══════════════════════════════════════════════════════════════════ */
+const PushEngine = (() => {
+
+  // ── Public VAPID key — generate yours at https://vapidkeys.com
+  // Replace this with your own public key after generating a VAPID pair.
+  const PUBLIC_VAPID_KEY = 'YOUR_VAPID_PUBLIC_KEY_HERE';
+
+  function urlBase64ToUint8Array(base64String) {
+    const padding = '='.repeat((4 - base64String.length % 4) % 4);
+    const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+    const raw = atob(base64);
+    return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
+  }
+
+  async function init() {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+    if (PUBLIC_VAPID_KEY === 'YOUR_VAPID_PUBLIC_KEY_HERE') return; // not configured yet
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      const existing = await reg.pushManager.getSubscription();
+      if (existing) {
+        await saveSubscription(existing);
+        return;
+      }
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') return;
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(PUBLIC_VAPID_KEY),
+      });
+      await saveSubscription(sub);
+    } catch (e) {
+      console.warn('[uni-co] Push init failed:', e);
+    }
+  }
+
+  async function saveSubscription(sub) {
+    // Store in Supabase push_subscriptions table (create via SQL editor):
+    // CREATE TABLE push_subscriptions (
+    //   id uuid primary key default gen_random_uuid(),
+    //   user_id uuid references users(id) on delete cascade,
+    //   subscription jsonb not null,
+    //   created_at timestamptz default now()
+    // );
+    try {
+      const sb = StorageEngine._sb();
+      await sb.from('push_subscriptions').upsert({
+        user_id: S.user?.id,
+        subscription: sub.toJSON(),
+      }, { onConflict: 'user_id' });
+    } catch (e) {
+      console.warn('[uni-co] Could not save push subscription:', e);
+    }
+  }
+
+  // Show a local notification if the document is hidden (tab in background)
+  function notifyIfHidden(senderName, content, projectId) {
+    if (!document.hidden) return; // user is looking at the tab, no need
+    if (Notification.permission !== 'granted') return;
+    try {
+      navigator.serviceWorker.ready.then(reg => {
+        reg.showNotification(`${senderName} — uni-co`, {
+          body: content.length > 80 ? content.slice(0, 80) + '…' : content,
+          icon: '/icons/icon-192x192.png',
+          badge: '/icons/icon-72x72.png',
+          tag: `chat-${projectId}`,     // replaces previous notification for same project
+          renotify: true,
+          data: { url: `/?ws=${projectId}` },
+          actions: [
+            { action: 'open',   title: 'Open chat' },
+            { action: 'dismiss',title: 'Dismiss'   },
+          ],
+        });
+      });
+    } catch(e) {}
+  }
+
+  // Ask for permission (call this from settings or first message send)
+  async function requestPermission() {
+    if (!('Notification' in window)) {
+      toast('Notifications not supported in this browser', 'error');
+      return false;
+    }
+    if (Notification.permission === 'granted') return true;
+    const result = await Notification.requestPermission();
+    if (result === 'granted') {
+      toast('Notifications enabled ✓', 'success');
+      await init();
+      return true;
+    }
+    toast('Notification permission denied', 'error');
+    return false;
+  }
+
+  return { init, notifyIfHidden, requestPermission };
 })();
