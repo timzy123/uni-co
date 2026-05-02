@@ -2207,13 +2207,13 @@ async function submitJoinKey() {
 
 let _editTaskId = null, _editProjectId = null;
 
-function openAddTask(pid, status) {
+function openAddTask(pid, status, prefillDate) {
   _editTaskId = null;
   _editProjectId = pid;
   document.getElementById('nt-title').value = '';
   document.getElementById('nt-desc').value = '';
   document.getElementById('nt-priority').value = 'MEDIUM';
-  document.getElementById('nt-due').value = '';
+  document.getElementById('nt-due').value = prefillDate || '';
   document.getElementById('nt-status').value = status;
   M.open('new-task');
   document.getElementById('nt-title')?.focus();
@@ -2246,6 +2246,10 @@ async function openTaskDetail(taskId) {
   document.getElementById('td-priority').value = t.priority;
   document.getElementById('td-due').value = t.dueDate ? t.dueDate.slice(0, 10) : '';
   M.open('task-detail');
+  // Load comments after modal opens
+  const box = document.getElementById('td-comments');
+  if (box) box.innerHTML = '<div style="font-size:12px;color:var(--tx3);font-style:italic">Loading…</div>';
+  setTimeout(() => loadTaskComments(taskId), 50);
 }
 
 async function saveTask() {
@@ -2332,11 +2336,12 @@ async function showWorkspace(id) {
       </div>
     </div>
     <div class="wstabs">
-      <div class="tab on" data-t="board"  onclick="wsTab(this,'board')">📋 Tasks</div>
-      <div class="tab"    data-t="files"  onclick="wsTab(this,'files')">📎 Files</div>
-      <div class="tab"    data-t="chat"   onclick="wsTab(this,'chat')">💬 Chat</div>
-      <div class="tab"    data-t="quiz"   onclick="wsTab(this,'quiz')">📝 Quiz</div>
-      <div class="tab"    data-t="graph"  onclick="wsTab(this,'graph')">🕸 Graph</div>
+      <div class="tab on" data-t="board"    onclick="wsTab(this,'board')">📋 Tasks</div>
+      <div class="tab"    data-t="calendar" onclick="wsTab(this,'calendar')">📅 Calendar</div>
+      <div class="tab"    data-t="files"    onclick="wsTab(this,'files')">📎 Files</div>
+      <div class="tab"    data-t="chat"     onclick="wsTab(this,'chat')">💬 Chat</div>
+      <div class="tab"    data-t="quiz"     onclick="wsTab(this,'quiz')">📝 Quiz</div>
+      <div class="tab"    data-t="graph"    onclick="wsTab(this,'graph')">🕸 Graph</div>
       <div class="tab"    data-t="overview" onclick="wsTab(this,'overview')">⚙ Overview</div>
     </div>
     <div class="wsbody">
@@ -2382,7 +2387,8 @@ function wsTab(el, t) {
 function renderWsTab(t, p) {
   const m = document.getElementById('ws-main');
   if (!m) return;
-  if (t === 'board')    renderKanban(m, p);
+  if (t === 'board')       renderKanban(m, p);
+  else if (t === 'calendar')  renderCalendar(m, p);
   else if (t === 'files')    renderFiles(m, p);
   else if (t === 'chat')     renderChat(m, p);
   else if (t === 'quiz')     renderQuiz(m, p);
@@ -2443,11 +2449,68 @@ function renderOverview(container, p) {
         <div class="prog" style="flex:1;height:8px;border-radius:6px"><div class="prog-fill" style="width:${pct}%;background:${col};height:100%"></div></div>
         <span style="font-size:13px;font-weight:700;color:${col}">${pct}%</span>
       </div>
-      <div style="display:flex;gap:16px">
+      <div style="display:flex;gap:16px;margin-bottom:16px">
         <span style="font-size:12px;color:var(--tx3)">✓ ${done} done</span>
         <span style="font-size:12px;color:var(--brand)">▶ ${inP} in progress</span>
         <span style="font-size:12px;color:var(--tx3)">○ ${todo} to do</span>
       </div>
+
+      <!-- Weekly completion sparkline -->
+      ${(() => {
+        const days = 7;
+        const bars = [];
+        for (let i = days - 1; i >= 0; i--) {
+          const d = new Date(); d.setDate(d.getDate() - i);
+          const ds = d.toDateString();
+          const count = tasks.filter(t =>
+            t.status === 'DONE' && t.updatedAt && new Date(t.updatedAt).toDateString() === ds
+          ).length;
+          const label = i === 0 ? 'Today' : d.toLocaleDateString('en-US',{weekday:'short'});
+          bars.push({ label, count });
+        }
+        const max = Math.max(...bars.map(b => b.count), 1);
+        return `<div style="margin-bottom:12px">
+          <div style="font-size:11px;color:var(--tx3);font-weight:600;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px">Tasks completed — last 7 days</div>
+          <div style="display:flex;align-items:flex-end;gap:4px;height:48px">
+            ${bars.map(b => `
+              <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px">
+                <div style="font-size:10px;color:var(--tx3)">${b.count > 0 ? b.count : ''}</div>
+                <div style="width:100%;border-radius:3px 3px 0 0;background:${b.count > 0 ? col : 'var(--bor)'};
+                            height:${Math.max(b.count / max * 32, b.count > 0 ? 4 : 2)}px;transition:height 0.3s"></div>
+                <div style="font-size:9px;color:var(--tx3);white-space:nowrap">${b.label}</div>
+              </div>`).join('')}
+          </div>
+        </div>`;
+      })()}
+
+      <!-- Per-member breakdown -->
+      ${(() => {
+        const memberRows = (p.members || []).map(m => {
+          const assigned = tasks.filter(t => t.assigneeId === m.userId);
+          const mdone    = assigned.filter(t => t.status === 'DONE').length;
+          const mpct     = assigned.length ? Math.round(mdone / assigned.length * 100) : 0;
+          if (assigned.length === 0) return '';
+          const name = m.user?.fullName || 'Unknown';
+          const code = m.user?.department?.code || '';
+          const mbg  = db_(code.toUpperCase()), mcol = dc(code.toUpperCase());
+          return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+            <div style="width:22px;height:22px;border-radius:50%;background:${mbg};color:${mcol};
+                        font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0">${ini(name)}</div>
+            <div style="flex:1;min-width:0">
+              <div style="font-size:11px;color:var(--tx2);margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(name)}</div>
+              <div style="height:4px;border-radius:2px;background:var(--bor);overflow:hidden">
+                <div style="height:100%;width:${mpct}%;background:${col};border-radius:2px;transition:width 0.4s"></div>
+              </div>
+            </div>
+            <div style="font-size:11px;color:var(--tx3);white-space:nowrap;flex-shrink:0">${mdone}/${assigned.length}</div>
+          </div>`;
+        }).filter(Boolean).join('');
+        if (!memberRows) return '';
+        return `<div>
+          <div style="font-size:11px;color:var(--tx3);font-weight:600;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px">By member</div>
+          ${memberRows}
+        </div>`;
+      })()}
     </div>
 
     <!-- Danger zone for leads -->
@@ -2603,6 +2666,183 @@ function sortTasks(tasks, sort) {
     return new Date(a.createdAt || 0) - new Date(b.createdAt || 0);
   });
 }
+
+/* ── Calendar View ─────────────────────────────────────────────────── */
+let _calYear  = new Date().getFullYear();
+let _calMonth = new Date().getMonth(); // 0-based
+
+function renderCalendar(container, p) {
+  const tasks    = p.tasks || [];
+  const members  = p.members || [];
+  const today    = new Date();
+  const year     = _calYear;
+  const month    = _calMonth;
+
+  // Build a map: "YYYY-MM-DD" -> [tasks]
+  const taskMap  = {};
+  tasks.forEach(t => {
+    if (!t.dueDate) return;
+    const d = new Date(t.dueDate);
+    const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    if (!taskMap[key]) taskMap[key] = [];
+    taskMap[key].push(t);
+  });
+
+  const monthName  = new Date(year, month, 1).toLocaleString('en-US', { month: 'long', year: 'numeric' });
+  const firstDay   = new Date(year, month, 1).getDay(); // 0=Sun
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+  // Build calendar grid cells
+  let cells = '';
+  // Empty leading cells
+  for (let i = 0; i < firstDay; i++) cells += `<div class="cal-cell cal-empty"></div>`;
+
+  for (let d = 1; d <= daysInMonth; d++) {
+    const key      = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const dayTasks = taskMap[key] || [];
+    const isToday  = today.getFullYear()===year && today.getMonth()===month && today.getDate()===d;
+    const isPast   = new Date(year, month, d) < new Date(today.getFullYear(), today.getMonth(), today.getDate());
+
+    const taskPills = dayTasks.slice(0, 3).map(t => {
+      const done = t.status === 'DONE';
+      const od   = !done && isPast;
+      const bg   = done ? 'var(--ok)' : od ? 'var(--err)' : t.priority === 'HIGH' ? 'var(--err)' : t.priority === 'LOW' ? 'var(--tx3)' : 'var(--brand)';
+      return `<div class="cal-pill" style="background:${bg};opacity:${done?0.5:1};text-decoration:${done?'line-through':''}"
+        onclick="event.stopPropagation();openTaskDetail('${t.id}')" title="${esc(t.title)}">${esc(t.title)}</div>`;
+    }).join('');
+
+    const overflow = dayTasks.length > 3
+      ? `<div class="cal-pill" style="background:var(--bg3);color:var(--tx3)">+${dayTasks.length - 3} more</div>`
+      : '';
+
+    cells += `
+      <div class="cal-cell${isToday ? ' cal-today' : ''}${isPast ? ' cal-past' : ''}"
+           onclick="calDayClick('${key}', '${p.id}')">
+        <div class="cal-day-num${isToday ? ' cal-today-num' : ''}">${d}</div>
+        <div class="cal-pills">${taskPills}${overflow}</div>
+      </div>`;
+  }
+
+  // Upcoming tasks list (next 30 days, not done)
+  const soon = tasks
+    .filter(t => t.dueDate && t.status !== 'DONE')
+    .map(t => ({ ...t, _d: new Date(t.dueDate) }))
+    .filter(t => t._d >= new Date(today.getFullYear(), today.getMonth(), today.getDate()))
+    .sort((a, b) => a._d - b._d)
+    .slice(0, 8);
+
+  const upcomingHTML = soon.length === 0
+    ? `<div style="color:var(--tx3);font-size:13px;padding:12px 0">No upcoming tasks with due dates.</div>`
+    : soon.map(t => {
+        const od  = isOD(t.dueDate), td = isTD(t.dueDate);
+        const col = od ? 'var(--err)' : td ? 'var(--warn)' : 'var(--brand)';
+        const assignee = members.find(m => m.userId === t.assigneeId);
+        return `<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--bor);cursor:pointer"
+          onclick="openTaskDetail('${t.id}')">
+          <div style="width:3px;border-radius:2px;align-self:stretch;background:${col};flex-shrink:0"></div>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:13px;font-weight:500;color:var(--tx);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(t.title)}</div>
+            ${assignee ? `<div style="font-size:11px;color:var(--tx3);margin-top:1px">👤 ${esc(assignee.user?.fullName || '')}</div>` : ''}
+          </div>
+          <div style="font-size:11px;font-weight:500;color:${col};white-space:nowrap">${td ? 'Today' : fmtD(t.dueDate)}</div>
+          <span class="pri pri-${t.priority==='HIGH'?'h':t.priority==='LOW'?'l':'m'}" style="flex-shrink:0">${(t.priority||'Med').charAt(0)+(t.priority||'Med').slice(1).toLowerCase()}</span>
+        </div>`;
+      }).join('');
+
+  container.innerHTML = `
+    <div style="display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap">
+
+      <!-- Calendar grid -->
+      <div style="flex:1;min-width:280px;background:var(--sur);border:1px solid var(--bor);border-radius:var(--rl);overflow:hidden">
+
+        <!-- Month nav -->
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid var(--bor);background:var(--bg2)">
+          <button class="btn btn-ghost btn-sm" onclick="calNav(-1,'${p.id}')">‹ Prev</button>
+          <div style="font-size:14px;font-weight:600;color:var(--tx2)">${monthName}</div>
+          <button class="btn btn-ghost btn-sm" onclick="calNav(1,'${p.id}')">Next ›</button>
+        </div>
+
+        <!-- Day headers -->
+        <div class="cal-grid cal-head">
+          ${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d =>
+            `<div style="text-align:center;font-size:11px;font-weight:600;color:var(--tx3);padding:6px 0">${d}</div>`
+          ).join('')}
+        </div>
+
+        <!-- Day cells -->
+        <div class="cal-grid">${cells}</div>
+      </div>
+
+      <!-- Upcoming list -->
+      <div style="width:240px;flex-shrink:0;background:var(--sur);border:1px solid var(--bor);border-radius:var(--rl);overflow:hidden">
+        <div style="padding:10px 14px;border-bottom:1px solid var(--bor);background:var(--bg2)">
+          <div style="font-size:13px;font-weight:600;color:var(--tx2)">📋 Upcoming</div>
+        </div>
+        <div style="padding:0 14px 8px">${upcomingHTML}</div>
+      </div>
+
+    </div>
+
+    <style>
+      .cal-grid { display:grid; grid-template-columns:repeat(7,1fr); }
+      .cal-head  { border-bottom:1px solid var(--bor); }
+      .cal-cell  { min-height:72px; padding:4px 5px; border-right:1px solid var(--bor); border-bottom:1px solid var(--bor); cursor:pointer; transition:background 0.15s; }
+      .cal-cell:hover { background:var(--bg2); }
+      .cal-cell:nth-child(7n) { border-right:none; }
+      .cal-empty { background:var(--bg2); opacity:0.4; cursor:default; }
+      .cal-past  { opacity:0.6; }
+      .cal-today { background:color-mix(in srgb, var(--brand) 8%, var(--sur)); }
+      .cal-day-num { font-size:12px; font-weight:500; color:var(--tx3); margin-bottom:3px; }
+      .cal-today-num { color:var(--brand); font-weight:700; }
+      .cal-pills { display:flex; flex-direction:column; gap:2px; }
+      .cal-pill  { font-size:10px; color:#fff; padding:1px 5px; border-radius:3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; cursor:pointer; }
+    </style>`;
+}
+
+window.calNav = function(dir, pid) {
+  _calMonth += dir;
+  if (_calMonth > 11) { _calMonth = 0;  _calYear++; }
+  if (_calMonth < 0)  { _calMonth = 11; _calYear--; }
+  renderCalendar(document.getElementById('ws-main'), window._wsProject);
+};
+
+window.calDayClick = function(dateKey, pid) {
+  // Show tasks for that day in a modal, or open add task with pre-filled date
+  const tasks = (window._wsProject?.tasks || []).filter(t => {
+    if (!t.dueDate) return false;
+    const d = new Date(t.dueDate);
+    const k = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    return k === dateKey;
+  });
+  if (tasks.length === 0) {
+    // Open add task with due date pre-filled
+    openAddTask(pid, 'TODO', dateKey);
+  } else if (tasks.length === 1) {
+    openTaskDetail(tasks[0].id);
+  } else {
+    // Show a quick popover listing tasks for that day
+    const existing = document.getElementById('cal-day-modal');
+    if (existing) existing.remove();
+    const fmt = new Date(dateKey + 'T12:00:00').toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric' });
+    const html = tasks.map(t =>
+      `<div style="padding:8px 0;border-bottom:1px solid var(--bor);cursor:pointer;font-size:13px;color:var(--tx)"
+        onclick="document.getElementById('cal-day-modal').remove();openTaskDetail('${t.id}')">${esc(t.title)}</div>`
+    ).join('');
+    const modal = document.createElement('div');
+    modal.id = 'cal-day-modal';
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:900;display:flex;align-items:center;justify-content:center';
+    modal.innerHTML = `<div style="background:var(--sur);border-radius:var(--rl);padding:20px;min-width:260px;max-width:340px;box-shadow:0 8px 32px rgba(0,0,0,0.18)">
+      <div style="font-size:14px;font-weight:600;color:var(--tx2);margin-bottom:12px">${fmt}</div>
+      ${html}
+      <div style="display:flex;gap:8px;margin-top:14px">
+        <button class="btn btn-primary btn-sm" onclick="document.getElementById('cal-day-modal').remove();openAddTask('${pid}','TODO','${dateKey}')">+ Add task</button>
+        <button class="btn btn-ghost btn-sm"   onclick="document.getElementById('cal-day-modal').remove()">Close</button>
+      </div>
+    </div>`;
+    modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+    document.body.appendChild(modal);
+  }
+};
 
 function renderKanban(container, p) {
   const tasks = p.tasks || [];
@@ -2819,15 +3059,18 @@ function renderChat(container, p) {
 
     <!-- Input bar -->
     <div style="padding:10px 14px;border-top:1px solid var(--bor);background:var(--sur);
-                display:flex;gap:8px;align-items:center;flex-shrink:0">
-      <input id="chat-in" placeholder="Message the team…"
+                display:flex;gap:8px;align-items:center;flex-shrink:0;position:relative">
+      <div id="mention-dropdown" style="display:none;position:absolute;bottom:62px;left:14px;right:60px;
+        background:var(--sur);border:1px solid var(--bor);border-radius:10px;
+        box-shadow:0 4px 16px rgba(0,0,0,0.14);z-index:50;overflow:hidden"></div>
+      <input id="chat-in" placeholder="Message the team… (@ to mention)"
         style="flex:1;padding:10px 14px;border:1.5px solid var(--bor);border-radius:22px;
                background:var(--bg2);color:var(--tx);font-size:14px;outline:none;
                font-family:inherit;transition:border-color 0.2s"
         onfocus="this.style.borderColor='var(--brand)'"
         onblur="this.style.borderColor='var(--bor)'"
-        oninput="broadcastTyping('${p.id}')"
-        onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendChat('${p.id}')}">
+        oninput="broadcastTyping('${p.id}');handleMentionInput(this)"
+        onkeydown="if(event.key==='Escape'){closeMentionDropdown()}else if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendChat('${p.id}')}">
       <button onclick="sendChat('${p.id}')"
         style="width:40px;height:40px;border-radius:50%;background:var(--brand);color:#fff;
                border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;
@@ -2970,12 +3213,142 @@ function updateTypingBar() {
   else bar.textContent = `${names.length} people are typing…`;
 }
 
+/* ── @mention autocomplete ─────────────────────────────────────────── */
+function handleMentionInput(input) {
+  const val    = input.value;
+  const caret  = input.selectionStart;
+  const before = val.slice(0, caret);
+  const match  = before.match(/@([A-Za-z0-9 ]*)$/);
+  const dd     = document.getElementById('mention-dropdown');
+  if (!match || !dd) { closeMentionDropdown(); return; }
+
+  const query   = match[1].toLowerCase();
+  const members = (window._wsProject?.members || []);
+  const hits    = members
+    .filter(m => m.userId !== S.user?.id)
+    .filter(m => (m.user?.fullName || '').toLowerCase().includes(query))
+    .slice(0, 5);
+
+  if (hits.length === 0) { closeMentionDropdown(); return; }
+
+  dd.style.display = 'block';
+  dd.innerHTML = hits.map((m, i) => {
+    const name = esc(m.user?.fullName || 'Unknown');
+    const code = m.user?.department?.code || '';
+    const bg   = db_(code.toUpperCase()), col = dc(code.toUpperCase());
+    return `<div data-mention-idx="${i}" onclick="insertMention('${(m.user?.fullName||'').replace(/'/g,"\\'")}',this)"
+      style="display:flex;align-items:center;gap:8px;padding:8px 12px;cursor:pointer;
+             transition:background 0.1s;font-size:13px;color:var(--tx)"
+      onmouseover="this.style.background='var(--bg2)'" onmouseout="this.style.background=''">
+      <div style="width:26px;height:26px;border-radius:50%;background:${bg};color:${col};
+                  font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0">${ini(m.user?.fullName)}</div>
+      <span>${name}</span>
+    </div>`;
+  }).join('');
+}
+
+function insertMention(fullName, el) {
+  const input  = document.getElementById('chat-in');
+  if (!input) return;
+  const val    = input.value;
+  const caret  = input.selectionStart;
+  const before = val.slice(0, caret);
+  const after  = val.slice(caret);
+  const newBefore = before.replace(/@([A-Za-z0-9 ]*)$/, `@${fullName} `);
+  input.value = newBefore + after;
+  input.focus();
+  input.setSelectionRange(newBefore.length, newBefore.length);
+  closeMentionDropdown();
+}
+
+function closeMentionDropdown() {
+  const dd = document.getElementById('mention-dropdown');
+  if (dd) dd.style.display = 'none';
+}
+
+/* ── Task Comments ─────────────────────────────────────────────────── */
+// We store task comments as messages with a special taskId field.
+// This reuses the existing messages table — no new table needed.
+
+async function loadTaskComments(taskId) {
+  const box = document.getElementById('td-comments');
+  if (!box) return;
+  try {
+    const sb = StorageEngine._sb();
+    const { data, error } = await sb
+      .from('messages')
+      .select('*, users!sender_id(full_name, department_id, departments(code, color_hex))')
+      .eq('task_id', taskId)
+      .order('sent_at', { ascending: true });
+
+    if (error || !data || data.length === 0) {
+      box.innerHTML = `<div style="font-size:12px;color:var(--tx3);font-style:italic">No comments yet.</div>`;
+      return;
+    }
+
+    box.innerHTML = data.map(c => {
+      const name  = c.users?.full_name || 'Unknown';
+      const code  = c.users?.departments?.code || '';
+      const bg    = db_(code.toUpperCase()), col = dc(code.toUpperCase());
+      const isSelf = c.sender_id === S.user?.id;
+      const time  = new Date(c.sent_at).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+      const date  = new Date(c.sent_at).toLocaleDateString('en-US',{month:'short',day:'numeric'});
+      return `<div style="display:flex;gap:8px;align-items:flex-start">
+        <div style="width:24px;height:24px;border-radius:50%;background:${bg};color:${col};
+                    font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:2px">${ini(name)}</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:11px;color:var(--tx3);margin-bottom:2px">${esc(isSelf?'You':name)} · ${date} ${time}</div>
+          <div style="font-size:13px;color:var(--tx);line-height:1.45;word-break:break-word;
+                      background:var(--bg2);border-radius:8px;padding:6px 10px">${esc(c.content)}</div>
+        </div>
+      </div>`;
+    }).join('');
+    box.scrollTop = box.scrollHeight;
+  } catch(e) {
+    const box = document.getElementById('td-comments');
+    if (box) box.innerHTML = `<div style="font-size:12px;color:var(--tx3);font-style:italic">Comments unavailable.</div>`;
+  }
+}
+
+async function submitTaskComment() {
+  if (demoGuard()) return;
+  const inp = document.getElementById('td-comment-in');
+  const txt = inp?.value?.trim();
+  if (!txt || !_editTaskId) return;
+  inp.value = '';
+  try {
+    const sb = StorageEngine._sb();
+    const pid = window._wsProject?.id;
+    await sb.from('messages').insert({
+      id: ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g,c=>(c^crypto.getRandomValues(new Uint8Array(1))[0]&15>>c/4).toString(16)),
+      project_id: pid,
+      sender_id:  S.user.id,
+      content:    txt,
+      task_id:    _editTaskId,
+      sent_at:    new Date().toISOString(),
+    });
+    await loadTaskComments(_editTaskId);
+    toast('Comment added', 'success');
+  } catch(e) {
+    toast('Could not post comment', 'error');
+  }
+}
+
 function chatBubbleHTML(msg, myId, isLead) {
   const isSelf = msg.senderId === myId;
   const sender = isSelf ? S.user : (msg.sender || {});
   const canDelete = isSelf || isLead;
   const code = sender?.department?.code || '';
   const bg = db_(code.toUpperCase()), col = dc(code.toUpperCase());
+
+  // Render @mentions as highlighted spans
+  const renderContent = (text) => {
+    if (!text) return '';
+    return esc(text).replace(/@([A-Za-z][A-Za-z0-9 ._-]{0,30})/g, (match, name) => {
+      const isSelfMention = name.toLowerCase() === (S.user?.fullName || '').toLowerCase();
+      return `<span style="background:${isSelfMention ? 'rgba(255,200,0,0.25)' : 'rgba(83,74,183,0.15)'};color:${isSelf ? 'rgba(255,255,255,0.9)' : 'var(--brand)'};border-radius:4px;padding:0 3px;font-weight:600">@${name}</span>`;
+    });
+  };
 
   return `<div class="chat-msg-row" data-mid="${msg.id}" style="display:flex;gap:9px;align-items:flex-end;${isSelf ? 'flex-direction:row-reverse' : ''}">
     <div style="width:30px;height:30px;border-radius:50%;background:${bg};color:${col};font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-bottom:2px">
@@ -2987,7 +3360,7 @@ function chatBubbleHTML(msg, myId, isLead) {
         ${canDelete ? `<button onclick="deleteChatMsg('${msg.id}')" style="background:none;border:none;cursor:pointer;color:var(--tx3);font-size:11px;margin-left:4px;padding:0;line-height:1;opacity:0.5" onmouseover="this.style.opacity=1;this.style.color='var(--err)'" onmouseout="this.style.opacity=0.5;this.style.color='var(--tx3)'" title="Delete">✕</button>` : ''}
       </div>
       <div style="padding:9px 14px;border-radius:${isSelf ? '16px 16px 4px 16px' : '16px 16px 16px 4px'};background:${isSelf ? 'var(--brand)' : 'var(--bg2)'};color:${isSelf ? '#fff' : 'var(--tx)'};font-size:14px;line-height:1.5;word-break:break-word">
-        ${esc(msg.content)}
+        ${renderContent(msg.content)}
       </div>
     </div>
   </div>`;
@@ -4147,7 +4520,7 @@ const PushEngine = (() => {
 
   // ── Public VAPID key — generate yours at https://vapidkeys.com
   // Replace this with your own public key after generating a VAPID pair.
-  const PUBLIC_VAPID_KEY = 'YOUR_VAPID_PUBLIC_KEY_HERE';
+  const PUBLIC_VAPID_KEY = 'BFsbeLbrlU2UMZxaeEtOnhkRbYd2OYtzF4TqBNeLkUs7oP8fEZOgRf-ONY0VqT4wCCJlbyW9lZErERlf5w8z_mA';
 
   function urlBase64ToUint8Array(base64String) {
     const padding = '='.repeat((4 - base64String.length % 4) % 4);
