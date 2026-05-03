@@ -744,6 +744,9 @@ function renderShell() {
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
   </button>
   <div class="mob-brand"><span>uni</span>-co</div>
+  <button class="mob-btn" onclick="openGlobalSearch()" aria-label="Search" style="margin-left:auto;margin-right:4px">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+  </button>
   <button class="mob-btn" onclick="go('notifs')" aria-label="Notifications" style="position:relative">
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0"/></svg>
     <span id="mob-notif-dot" style="display:none;position:absolute;top:6px;right:6px;width:7px;height:7px;border-radius:50%;background:var(--err)"></span>
@@ -963,48 +966,6 @@ const M = {
     if (overlay) overlay.classList.remove('on');
   },
 };
-
-/* ── Keyboard viewport shift fix ──────────────────────────────────── */
-(function() {
-  if (typeof window === 'undefined' || !window.visualViewport) return;
-  if (window.innerWidth > 860) return;
-
-  const vv = window.visualViewport;
-  let _lastHeight = vv.height;
-  let _scrollEl = null;
-  let _savedScroll = 0;
-
-  function onViewportResize() {
-    const app = document.getElementById('app');
-    if (!app) return;
-    const keyboardOpen = vv.height < _lastHeight - 50;
-    if (keyboardOpen) {
-      _scrollEl = document.getElementById('main') || document.scrollingElement;
-      _savedScroll = _scrollEl ? _scrollEl.scrollTop : 0;
-      app.style.height = vv.height + 'px';
-      app.style.position = 'fixed';
-      app.style.top = '0';
-      app.style.left = '0';
-      app.style.right = '0';
-      setTimeout(() => {
-        const focused = document.activeElement;
-        if (focused && focused !== document.body) {
-          focused.scrollIntoView({ block: 'center', behavior: 'smooth' });
-        }
-      }, 100);
-    } else {
-      app.style.height = '';
-      app.style.position = '';
-      app.style.top = '';
-      app.style.left = '';
-      app.style.right = '';
-      if (_scrollEl) { _scrollEl.scrollTop = _savedScroll; _scrollEl = null; }
-      _lastHeight = vv.height;
-    }
-  }
-
-  vv.addEventListener('resize', onViewportResize);
-})();
 
 document.addEventListener('click', e => {
   if (e.target.classList.contains('ov')) e.target.classList.remove('on');
@@ -1464,6 +1425,15 @@ async function doSignup() {
   if (!pw || pw.length < 8) { err.textContent = 'Password must be at least 8 characters.'; err.style.display = 'block'; return; }
   if (pw !== pw2) { err.textContent = 'Passwords do not match.'; err.style.display = 'block'; return; }
   if (!terms) { err.textContent = 'Please accept the Terms of Service.'; err.style.display = 'block'; return; }
+  // Optional university email domain check
+  const requiredDomain = localStorage.getItem('uni_co_edu_domain');
+  if (requiredDomain && email) {
+    const emailDomain = email.split('@')[1]?.toLowerCase();
+    if (emailDomain !== requiredDomain) {
+      err.textContent = `This platform requires a @${requiredDomain} email address.`;
+      err.style.display = 'block'; return;
+    }
+  }
   const btn = document.getElementById('sbtn'); btn.disabled = true; btn.textContent = 'Creating account...';
   try {
     let finalDeptId = dept;
@@ -1556,6 +1526,7 @@ async function showDashboard() {
       ? `<div class="empty"><div class="emico">${I.fo}</div><p style="font-weight:600;margin-bottom:6px">No projects yet</p><button class="btn btn-primary" onclick="openNewProject(this)">${I.pl} New project</button></div>`
       : `<div class="pgrid">${enriched.map(p => pcrd(p)).join('')}</div>`}
     ${renderDueSoonSection(overdue, today, thisWeek, nextWeek)}
+    ${renderActivityFeed(enriched)}
   </div>`;
   } catch(e) {
     console.error('Dashboard error:', e);
@@ -1587,6 +1558,245 @@ function renderDueSoonSection(overdue, today, thisWeek, nextWeek) {
       `).join('')}
     </div>
   </div>`;
+}
+
+/* ── University email domain ─────────────────────────────────────────── */
+window.saveEduDomain = function() {
+  const val = document.getElementById('edu-domain')?.value?.trim().toLowerCase().replace(/^@/, '');
+  if (val) {
+    localStorage.setItem('uni_co_edu_domain', val);
+    toast(`Domain restricted to @${val}`, 'success');
+  } else {
+    localStorage.removeItem('uni_co_edu_domain');
+    toast('Domain restriction cleared', 'success');
+  }
+  showSettings(); // re-render to show updated status
+};
+
+/* ── Export Tasks to PDF ────────────────────────────────────────────── */
+function exportTasksPDF() {
+  const p = window._wsProject;
+  if (!p) return;
+  const tasks = p.tasks || [];
+  const members = p.members || [];
+  const cols = [
+    { k: 'TODO', label: 'To Do' },
+    { k: 'IN_PROGRESS', label: 'In Progress' },
+    { k: 'DONE', label: 'Done' },
+  ];
+
+  const colHTML = cols.map(col => {
+    const colTasks = tasks.filter(t => t.status === col.k);
+    const rows = colTasks.length === 0
+      ? '<tr><td colspan="4" style="color:#999;font-style:italic;padding:8px">No tasks</td></tr>'
+      : colTasks.map(t => {
+          const assignee = members.find(m => m.userId === t.assigneeId)?.user?.fullName || '—';
+          const due = t.dueDate ? new Date(t.dueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
+          const pri = t.priority || 'MEDIUM';
+          const priColor = pri === 'HIGH' ? '#e53e3e' : pri === 'LOW' ? '#718096' : '#805ad5';
+          return `<tr>
+            <td style="padding:8px;border-bottom:1px solid #eee">${t.title}</td>
+            <td style="padding:8px;border-bottom:1px solid #eee;color:${priColor};font-weight:600;font-size:11px">${pri}</td>
+            <td style="padding:8px;border-bottom:1px solid #eee;color:#555">${assignee}</td>
+            <td style="padding:8px;border-bottom:1px solid #eee;color:#555">${due}</td>
+          </tr>`;
+        }).join('');
+    return `<div style="margin-bottom:24px">
+      <div style="font-size:13px;font-weight:700;color:#534AB7;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.05em">${col.label} (${colTasks.length})</div>
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead><tr style="background:#f5f5f5">
+          <th style="padding:8px;text-align:left;border-bottom:2px solid #ddd">Task</th>
+          <th style="padding:8px;text-align:left;border-bottom:2px solid #ddd">Priority</th>
+          <th style="padding:8px;text-align:left;border-bottom:2px solid #ddd">Assignee</th>
+          <th style="padding:8px;text-align:left;border-bottom:2px solid #ddd">Due</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+  }).join('');
+
+  const done = tasks.filter(t => t.status === 'DONE').length;
+  const pct  = tasks.length ? Math.round(done / tasks.length * 100) : 0;
+  const date = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
+    <title>${p.title} — Task Board</title>
+    <style>
+      body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin: 40px; color: #1a1a2e; }
+      h1 { font-size: 22px; color: #534AB7; margin-bottom: 4px; }
+      .meta { font-size: 12px; color: #777; margin-bottom: 8px; }
+      .progress { height: 6px; background: #eee; border-radius: 3px; margin-bottom: 28px; }
+      .progress-fill { height: 100%; background: #534AB7; border-radius: 3px; width: ${pct}%; }
+    </style>
+  </head><body>
+    <h1>${p.title}</h1>
+    <div class="meta">Exported ${date} · ${tasks.length} tasks · ${pct}% complete</div>
+    <div class="progress"><div class="progress-fill"></div></div>
+    ${colHTML}
+  </body></html>`;
+
+  const win = window.open('', '_blank');
+  if (!win) { toast('Allow popups to export PDF', 'error'); return; }
+  win.document.write(html);
+  win.document.close();
+  win.focus();
+  setTimeout(() => { win.print(); }, 400);
+}
+
+/* ── Global Search ─────────────────────────────────────────────────── */
+async function openGlobalSearch() {
+  const existing = document.getElementById('global-search-modal');
+  if (existing) { existing.querySelector('#gs-input')?.focus(); return; }
+
+  const modal = document.createElement('div');
+  modal.id = 'global-search-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:400;display:flex;align-items:flex-start;justify-content:center;padding:60px 16px 16px;backdrop-filter:blur(4px)';
+  modal.innerHTML = `
+    <div style="background:var(--sur);border:1px solid var(--bor);border-radius:var(--rl);width:100%;max-width:560px;box-shadow:0 12px 48px rgba(0,0,0,0.2);overflow:hidden">
+      <div style="display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--bor)">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--tx3)" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input id="gs-input" placeholder="Search tasks, files, messages…"
+          style="flex:1;background:none;border:none;outline:none;font-size:15px;color:var(--tx);font-family:inherit"
+          oninput="runGlobalSearch(this.value)" autocomplete="off">
+        <button onclick="document.getElementById('global-search-modal').remove()"
+          style="background:none;border:none;color:var(--tx3);cursor:pointer;font-size:18px;padding:0;line-height:1">✕</button>
+      </div>
+      <div id="gs-results" style="max-height:60vh;overflow-y:auto;padding:8px 0">
+        <div style="padding:24px;text-align:center;color:var(--tx3);font-size:13px">Start typing to search…</div>
+      </div>
+    </div>`;
+
+  modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+  document.body.appendChild(modal);
+  setTimeout(() => document.getElementById('gs-input')?.focus(), 50);
+}
+
+async function runGlobalSearch(query) {
+  const box = document.getElementById('gs-results');
+  if (!box) return;
+  const q = query.trim().toLowerCase();
+  if (q.length < 2) {
+    box.innerHTML = '<div style="padding:24px;text-align:center;color:var(--tx3);font-size:13px">Start typing to search…</div>';
+    return;
+  }
+
+  box.innerHTML = '<div style="padding:16px;text-align:center;color:var(--tx3);font-size:13px">Searching…</div>';
+
+  try {
+    const projects = await StorageEngine.getMyProjects(S.user.id);
+    const enriched = await Promise.all(projects.map(p => StorageEngine.getProject(p.id)));
+
+    const results = [];
+
+    enriched.forEach(p => {
+      // Tasks
+      (p.tasks || []).filter(t => t.title?.toLowerCase().includes(q) || t.description?.toLowerCase().includes(q)).forEach(t => {
+        results.push({ type: 'task', icon: '📋', title: t.title, sub: p.title, pid: p.id, action: () => { document.getElementById('global-search-modal')?.remove(); go('ws', { id: p.id }); setTimeout(() => openTaskDetail(t.id), 600); } });
+      });
+      // Files
+      (p.files || []).filter(f => f.filename?.toLowerCase().includes(q)).forEach(f => {
+        results.push({ type: 'file', icon: '📎', title: f.filename, sub: p.title, pid: p.id, action: () => { document.getElementById('global-search-modal')?.remove(); go('ws', { id: p.id }); } });
+      });
+      // Messages
+      (p.messages || []).filter(m => m.content?.toLowerCase().includes(q)).forEach(m => {
+        const snippet = m.content.length > 60 ? m.content.slice(0, 60) + '…' : m.content;
+        results.push({ type: 'message', icon: '💬', title: snippet, sub: p.title, pid: p.id, action: () => { document.getElementById('global-search-modal')?.remove(); go('ws', { id: p.id }); } });
+      });
+    });
+
+    if (results.length === 0) {
+      box.innerHTML = `<div style="padding:24px;text-align:center;color:var(--tx3);font-size:13px">No results for "<b>${esc(query)}</b>"</div>`;
+      return;
+    }
+
+    box.innerHTML = results.slice(0, 20).map(r => `
+      <div onclick="(${r.action.toString()})()" style="display:flex;align-items:center;gap:10px;padding:10px 16px;cursor:pointer;transition:background 0.1s"
+        onmouseover="this.style.background='var(--bg2)'" onmouseout="this.style.background=''">
+        <div style="width:28px;height:28px;border-radius:7px;background:var(--bg2);display:flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0">${r.icon}</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;color:var(--tx);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(r.title)}</div>
+          <div style="font-size:11px;color:var(--tx3)">${esc(r.sub)} · ${r.type}</div>
+        </div>
+      </div>`).join('');
+  } catch(e) {
+    box.innerHTML = '<div style="padding:16px;text-align:center;color:var(--err);font-size:13px">Search failed</div>';
+  }
+}
+
+/* ── Activity Feed ─────────────────────────────────────────────────── */
+function renderActivityFeed(projects) {
+  // Build activity events from tasks and messages across all projects
+  const events = [];
+  const now = Date.now();
+  const cutoff = now - 7 * 24 * 60 * 60 * 1000; // last 7 days
+
+  projects.forEach(p => {
+    const members = p.members || [];
+    const getMember = (userId) => members.find(m => m.userId === userId);
+
+    // Task events
+    (p.tasks || []).forEach(t => {
+      const ts = new Date(t.updatedAt || t.createdAt).getTime();
+      if (ts < cutoff) return;
+      const actor = getMember(t.assigneeId || '')?.user?.fullName || 'Someone';
+      if (t.status === 'DONE') {
+        events.push({ ts, icon: '✅', text: `<b>${esc(actor)}</b> completed <b>${esc(t.title)}</b>`, project: p.title, pid: p.id });
+      } else if (t.createdAt === t.updatedAt || !t.updatedAt) {
+        events.push({ ts, icon: '📋', text: `New task <b>${esc(t.title)}</b> added`, project: p.title, pid: p.id });
+      }
+    });
+
+    // File events
+    (p.files || []).forEach(f => {
+      const ts = new Date(f.createdAt).getTime();
+      if (ts < cutoff) return;
+      const actor = getMember(f.uploadedById)?.user?.fullName || 'Someone';
+      events.push({ ts, icon: '📎', text: `<b>${esc(actor)}</b> uploaded <b>${esc(f.filename)}</b>`, project: p.title, pid: p.id });
+    });
+
+    // Member join events
+    (p.members || []).forEach(m => {
+      const ts = new Date(m.joinedAt).getTime();
+      if (ts < cutoff) return;
+      const name = m.user?.fullName || 'Someone';
+      events.push({ ts, icon: '👥', text: `<b>${esc(name)}</b> joined the project`, project: p.title, pid: p.id });
+    });
+  });
+
+  if (events.length === 0) return '';
+
+  events.sort((a, b) => b.ts - a.ts);
+  const recent = events.slice(0, 12);
+
+  const rows = recent.map(e => {
+    const ago = fmtAgo(e.ts);
+    return `<div style="display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-bottom:1px solid var(--bor);cursor:pointer"
+      onclick="go('ws',{id:'${e.pid}'})">
+      <div style="width:28px;height:28px;border-radius:8px;background:var(--bg2);display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0">${e.icon}</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13px;color:var(--tx);line-height:1.4">${e.text}</div>
+        <div style="font-size:11px;color:var(--tx3);margin-top:2px">${esc(e.project)} · ${ago}</div>
+      </div>
+    </div>`;
+  }).join('');
+
+  return `<div style="margin-top:24px">
+    <h2 style="margin-bottom:10px">Recent activity</h2>
+    <div style="background:var(--sur);border:1px solid var(--bor);border-radius:var(--rl);padding:0 16px">
+      ${rows}
+    </div>
+  </div>`;
+}
+
+function fmtAgo(ts) {
+  const diff = Date.now() - ts;
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return 'just now';
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  return `${d}d ago`;
 }
 
 /* ── Project Card ──────────────────────────────────────────────────── */
@@ -2054,6 +2264,22 @@ async function showSettings() {
           Enable push notifications
         </button>
       </div>
+      <div class="setsec" style="margin-top:16px">
+        <div class="setsec-t">🎓 University email</div>
+        <div class="setsec-d">Optionally restrict your account to a specific email domain (e.g. <code>unilag.edu.ng</code>). Leave blank to allow any email.</div>
+        <div style="display:flex;gap:8px;align-items:center;margin-top:8px">
+          <input class="fi" id="edu-domain" placeholder="e.g. unilag.edu.ng or leave blank"
+            style="flex:1;max-width:280px"
+            value="${esc(localStorage.getItem('uni_co_edu_domain') || '')}">
+          <button class="btn btn-primary btn-sm" onclick="saveEduDomain()">Save</button>
+          <button class="btn btn-ghost btn-sm" onclick="document.getElementById('edu-domain').value='';saveEduDomain()">Clear</button>
+        </div>
+        <div style="font-size:12px;color:var(--tx3);margin-top:6px">
+          ${localStorage.getItem('uni_co_edu_domain')
+            ? `✓ Currently restricted to <b>@${esc(localStorage.getItem('uni_co_edu_domain'))}</b>`
+            : 'Currently open to any email address.'}
+        </div>
+      </div>
       <div class="setsec" style="border-color:var(--err-bg);margin-top:16px">
         <div class="setsec-t" style="color:var(--err)">Danger zone</div>
         <div class="setsec-d">Permanently delete your account and all associated data. This cannot be undone.</div>
@@ -2425,6 +2651,7 @@ function renderWsTab(t, p) {
   if (!m) return;
   if (t === 'board')       renderKanban(m, p);
   else if (t === 'calendar')  renderCalendar(m, p);
+  else if (t === 'chat')     { clearChatUnread(p.id); renderChat(m, p); return; }
   else if (t === 'files')    renderFiles(m, p);
   else if (t === 'chat')     renderChat(m, p);
   else if (t === 'quiz')     renderQuiz(m, p);
@@ -2893,7 +3120,8 @@ function renderKanban(container, p) {
       ${[['priority','Priority'],['due','Due date'],['created','Created']].map(([v,l]) =>
         `<button class="sort-chip${_kanbanSort===v?' on':''}" onclick="setKanbanSort('${v}','${p.id}')">${l}</button>`
       ).join('')}
-      <button class="btn btn-primary btn-sm" style="margin-left:auto" onclick="openAddTask('${p.id}','TODO')">${I.pl} Add task</button>
+      <button class="btn btn-ghost btn-sm" style="margin-left:auto;margin-right:4px" onclick="exportTasksPDF()" title="Export to PDF">📄 Export</button>
+      <button class="btn btn-primary btn-sm" onclick="openAddTask('${p.id}','TODO')">${I.pl} Add task</button>
     </div>
     <div class="kanban">
     ${cols.map(col => {
@@ -2988,6 +3216,8 @@ function renderFiles(container, p) {
               <div class="fmeta">${fmtSz(f.sizeBytes)} · v${f.version || 1} · ${fmtD(f.createdAt)}</div>
             </div>
             <div style="display:flex;gap:4px">
+              ${['image/png','image/jpeg','image/jpg','image/gif','image/webp','image/svg+xml','application/pdf'].some(mt => f.mimeType === mt || f.filename?.toLowerCase().match(/\.(png|jpg|jpeg|gif|webp|svg|pdf)$/))
+                ? `<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();previewFile('${f.id}','${esc(f.filename)}','${esc(f.fileUrl || '')}','${f.mimeType || ''}')" title="Preview">👁</button>` : ''}
               <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();addFileTag('${f.id}')" title="Tag">🏷</button>
               <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();StorageEngine.downloadFile('${f.id}')" title="Download">${I.fi}</button>
               ${canDelete ? `<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();deleteFile('${f.id}','${p.id}')" title="Delete" style="color:var(--err)">${I.tr}</button>` : ''}
@@ -3030,6 +3260,47 @@ async function doUpload(file, pid) {
   await StorageEngine.uploadFile(pid, S.user.id, file);
   toast(`${file.name} uploaded`, 'success');
   reloadWs();
+}
+
+/* ── File Preview Modal ─────────────────────────────────────────────── */
+async function previewFile(fileId, filename, fileUrl, mimeType) {
+  // Get signed URL if not already provided
+  let url = fileUrl;
+  if (!url || url === 'undefined') {
+    try {
+      const sb = StorageEngine._sb();
+      const { data } = await sb.storage.from('project-files').createSignedUrl(fileId, 60);
+      url = data?.signedUrl;
+    } catch(e) {}
+  }
+  if (!url) { toast('Could not load preview', 'error'); return; }
+
+  const isImage = /\.(png|jpg|jpeg|gif|webp|svg)$/i.test(filename) || (mimeType && mimeType.startsWith('image/'));
+  const isPDF   = /\.pdf$/i.test(filename) || mimeType === 'application/pdf';
+
+  const existing = document.getElementById('file-preview-modal');
+  if (existing) existing.remove();
+
+  const modal = document.createElement('div');
+  modal.id = 'file-preview-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:500;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:16px';
+
+  const content = isImage
+    ? `<img src="${url}" alt="${esc(filename)}" style="max-width:100%;max-height:80vh;border-radius:12px;object-fit:contain;box-shadow:0 8px 40px rgba(0,0,0,0.4)">`
+    : isPDF
+    ? `<iframe src="${url}" style="width:min(800px,95vw);height:80vh;border:none;border-radius:12px;background:#fff"></iframe>`
+    : `<div style="color:#fff;font-size:14px">Preview not available for this file type.</div>`;
+
+  modal.innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:space-between;width:min(800px,95vw);margin-bottom:12px">
+      <div style="font-size:13px;font-weight:600;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">${esc(filename)}</div>
+      <button onclick="document.getElementById('file-preview-modal').remove()"
+        style="background:rgba(255,255,255,0.15);border:none;color:#fff;width:32px;height:32px;border-radius:8px;cursor:pointer;font-size:16px;flex-shrink:0;margin-left:12px">✕</button>
+    </div>
+    ${content}`;
+
+  modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+  document.body.appendChild(modal);
 }
 
 async function deleteFile(fileId, pid) {
@@ -3159,6 +3430,15 @@ function startChatRealtime(projectId, myUserId, isLead) {
       };
 
       const msgs = document.getElementById('msgs');
+
+      // Track unread if chat tab not visible
+      const chatTabActive = document.querySelector('.tab.on[data-t="chat"]');
+      if (!chatTabActive) {
+        window._unreadChats = window._unreadChats || {};
+        window._unreadChats[projectId] = (window._unreadChats[projectId] || 0) + 1;
+        updateChatBadge(projectId);
+      }
+
       if (!msgs) return;
 
       // Remove empty state if present
@@ -3189,6 +3469,26 @@ function startChatRealtime(projectId, myUserId, isLead) {
       if (row) { row.style.opacity = '0'; setTimeout(() => row.remove(), 200); }
     })
 
+    // Presence tracking
+    .on('presence', { event: 'sync' }, () => {
+      const state = window._chatChannel.presenceState();
+      window._onlineUsers = {};
+      Object.values(state).forEach(presences => {
+        presences.forEach(p => { if (p.userId) window._onlineUsers[p.userId] = true; });
+      });
+      updatePresenceDots();
+    })
+    .on('presence', { event: 'join' }, ({ newPresences }) => {
+      window._onlineUsers = window._onlineUsers || {};
+      newPresences.forEach(p => { if (p.userId) window._onlineUsers[p.userId] = true; });
+      updatePresenceDots();
+    })
+    .on('presence', { event: 'leave' }, ({ leftPresences }) => {
+      window._onlineUsers = window._onlineUsers || {};
+      leftPresences.forEach(p => { if (p.userId) delete window._onlineUsers[p.userId]; });
+      updatePresenceDots();
+    })
+
     // Typing broadcast (presence-style)
     .on('broadcast', { event: 'typing' }, (payload) => {
       const { userId, name } = payload.payload;
@@ -3210,11 +3510,90 @@ function startChatRealtime(projectId, myUserId, isLead) {
       if (status === 'SUBSCRIBED') {
         indicator.innerHTML = '<span style="width:6px;height:6px;border-radius:50%;background:var(--ok);display:inline-block"></span> Live';
         indicator.style.color = 'var(--ok)';
+        // Track own presence
+        window._chatChannel.track({ userId: myUserId, ts: Date.now() });
       } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
         indicator.innerHTML = '<span style="width:6px;height:6px;border-radius:50%;background:var(--err);display:inline-block"></span> Reconnecting…';
         indicator.style.color = 'var(--err)';
       }
     });
+}
+
+/* ── Unread chat badge ─────────────────────────────────────────────── */
+function updateChatBadge(projectId) {
+  const count = (window._unreadChats || {})[projectId] || 0;
+  // Update Chat tab badge
+  const chatTab = document.querySelector('.tab[data-t="chat"]');
+  if (chatTab) {
+    let badge = chatTab.querySelector('.chat-unread-badge');
+    if (count > 0) {
+      if (!badge) {
+        badge = document.createElement('span');
+        badge.className = 'chat-unread-badge';
+        badge.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;border-radius:8px;background:var(--err);color:#fff;font-size:9px;font-weight:700;padding:0 4px;margin-left:4px;vertical-align:middle';
+        chatTab.appendChild(badge);
+      }
+      badge.textContent = count > 99 ? '99+' : count;
+    } else if (badge) {
+      badge.remove();
+    }
+  }
+  // Update mobile nav Projects dot
+  const projNavItem = document.querySelector('.mob-nav-item[data-p="projects"]');
+  if (projNavItem) {
+    let dot = projNavItem.querySelector('.msg-unread-dot');
+    const totalUnread = Object.values(window._unreadChats || {}).reduce((a, b) => a + b, 0);
+    if (totalUnread > 0) {
+      if (!dot) {
+        dot = document.createElement('span');
+        dot.className = 'msg-unread-dot';
+        dot.style.cssText = 'position:absolute;top:4px;right:10px;width:8px;height:8px;border-radius:50%;background:var(--err);border:2px solid var(--sur)';
+        projNavItem.style.position = 'relative';
+        projNavItem.appendChild(dot);
+      }
+    } else if (dot) {
+      dot.remove();
+    }
+  }
+}
+
+function clearChatUnread(projectId) {
+  if (!window._unreadChats) return;
+  delete window._unreadChats[projectId];
+  updateChatBadge(projectId);
+}
+
+function updatePresenceDots() {
+  const online = window._onlineUsers || {};
+  // Update all avatar elements that have data-uid
+  document.querySelectorAll('[data-uid]').forEach(el => {
+    const uid = el.getAttribute('data-uid');
+    let dot = el.querySelector('.presence-dot');
+    if (online[uid]) {
+      if (!dot) {
+        dot = document.createElement('span');
+        dot.className = 'presence-dot';
+        dot.style.cssText = 'position:absolute;bottom:0;right:0;width:8px;height:8px;border-radius:50%;background:var(--ok);border:2px solid var(--sur);box-sizing:content-box';
+        el.style.position = 'relative';
+        el.appendChild(dot);
+      }
+    } else if (dot) {
+      dot.remove();
+    }
+  });
+  // Update the chat member count with online count
+  const memberHeader = document.getElementById('chat-member-header');
+  if (memberHeader) {
+    const onlineCount = Object.keys(online).length;
+    if (onlineCount > 0) {
+      memberHeader.querySelector('.online-count')?.remove();
+      const span = document.createElement('span');
+      span.className = 'online-count';
+      span.style.cssText = 'font-size:11px;color:var(--ok);margin-left:6px;font-weight:600';
+      span.textContent = `· ${onlineCount} online`;
+      memberHeader.appendChild(span);
+    }
+  }
 }
 
 function stopChatRealtime() {
