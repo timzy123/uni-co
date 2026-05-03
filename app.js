@@ -964,6 +964,48 @@ const M = {
   },
 };
 
+/* ── Keyboard viewport shift fix ──────────────────────────────────── */
+(function() {
+  if (typeof window === 'undefined' || !window.visualViewport) return;
+  if (window.innerWidth > 860) return;
+
+  const vv = window.visualViewport;
+  let _lastHeight = vv.height;
+  let _scrollEl = null;
+  let _savedScroll = 0;
+
+  function onViewportResize() {
+    const app = document.getElementById('app');
+    if (!app) return;
+    const keyboardOpen = vv.height < _lastHeight - 50;
+    if (keyboardOpen) {
+      _scrollEl = document.getElementById('main') || document.scrollingElement;
+      _savedScroll = _scrollEl ? _scrollEl.scrollTop : 0;
+      app.style.height = vv.height + 'px';
+      app.style.position = 'fixed';
+      app.style.top = '0';
+      app.style.left = '0';
+      app.style.right = '0';
+      setTimeout(() => {
+        const focused = document.activeElement;
+        if (focused && focused !== document.body) {
+          focused.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        }
+      }, 100);
+    } else {
+      app.style.height = '';
+      app.style.position = '';
+      app.style.top = '';
+      app.style.left = '';
+      app.style.right = '';
+      if (_scrollEl) { _scrollEl.scrollTop = _savedScroll; _scrollEl = null; }
+      _lastHeight = vv.height;
+    }
+  }
+
+  vv.addEventListener('resize', onViewportResize);
+})();
+
 document.addEventListener('click', e => {
   if (e.target.classList.contains('ov')) e.target.classList.remove('on');
 });
