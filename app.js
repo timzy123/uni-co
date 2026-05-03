@@ -524,11 +524,6 @@ const StorageEngine = (() => {
       const n = await getAll('notifications', 'userId', userId);
       for (const x of n) await put('notifications', { ...x, read: true });
     },
-    deleteNotif: (id) => del('notifications', id),
-    clearAllNotifs: async (userId) => {
-      const n = await getAll('notifications', 'userId', userId);
-      for (const x of n) await del('notifications', x.id);
-    },
     addNotif: (userId, text, type = 'system') => put('notifications', { id: uid(), userId, text, type, read: false, createdAt: now() }),
 
     // Quizzes
@@ -637,7 +632,8 @@ const av = (user, sz = 'sm') => {
   if (!user) return `<div class="av av-${sz}" style="background:var(--bg3);color:var(--tx3)">??</div>`;
   const code = user?.department?.code || '';
   const bg = db_(code.toUpperCase()), col = dc(code.toUpperCase());
-  return `<div class="av av-${sz}" style="background:${bg};color:${col}">${ini(user?.fullName)}</div>`;
+  const uid = user?.id ? `data-uid="${user.id}" style="position:relative;background:${bg};color:${col}"` : `style="background:${bg};color:${col}"`;
+  return `<div class="av av-${sz}" ${uid}>${ini(user?.fullName)}</div>`;
 };
 const avStack = (members, max = 4) => {
   const vis = members.slice(0, max), ex = members.length - max;
@@ -1729,6 +1725,29 @@ async function runGlobalSearch(query) {
 }
 
 /* ── Activity Feed ─────────────────────────────────────────────────── */
+const _dismissedActivities = new Set();
+
+function dismissActivity(idx) {
+  _dismissedActivities.add(idx);
+  const item = document.getElementById('activity-item-' + idx);
+  if (item) item.remove();
+  const feed = document.getElementById('activity-feed-list');
+  if (feed && feed.children.length === 0) {
+    const wrap = document.getElementById('activity-feed-wrap');
+    if (wrap) wrap.remove();
+  }
+}
+
+function clearAllActivities() {
+  const wrap = document.getElementById('activity-feed-wrap');
+  if (wrap) wrap.remove();
+  const items = document.querySelectorAll('[id^="activity-item-"]');
+  items.forEach(el => {
+    const idx = el.id.replace('activity-item-', '');
+    _dismissedActivities.add(idx);
+  });
+}
+
 function renderActivityFeed(projects) {
   // Build activity events from tasks and messages across all projects
   const events = [];
@@ -1773,21 +1792,27 @@ function renderActivityFeed(projects) {
   events.sort((a, b) => b.ts - a.ts);
   const recent = events.slice(0, 12);
 
-  const rows = recent.map(e => {
+  const rows = recent.map((e, i) => {
+    if (_dismissedActivities.has(String(i))) return '';
     const ago = fmtAgo(e.ts);
-    return `<div style="display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-bottom:1px solid var(--bor);cursor:pointer"
-      onclick="go('ws',{id:'${e.pid}'})">
-      <div style="width:28px;height:28px;border-radius:8px;background:var(--bg2);display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0">${e.icon}</div>
-      <div style="flex:1;min-width:0">
+    return `<div id="activity-item-${i}" style="display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-bottom:1px solid var(--bor)">
+      <div style="width:28px;height:28px;border-radius:8px;background:var(--bg2);display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0;cursor:pointer" onclick="dismissActivity('${i}');go('ws',{id:'${e.pid}'})">${e.icon}</div>
+      <div style="flex:1;min-width:0;cursor:pointer" onclick="dismissActivity('${i}');go('ws',{id:'${e.pid}'})">
         <div style="font-size:13px;color:var(--tx);line-height:1.4">${e.text}</div>
         <div style="font-size:11px;color:var(--tx3);margin-top:2px">${esc(e.project)} · ${ago}</div>
       </div>
+      <div onclick="dismissActivity('${i}')" title="Remove" style="flex-shrink:0;width:20px;height:20px;display:flex;align-items:center;justify-content:center;border-radius:6px;color:var(--tx3);cursor:pointer;font-size:14px;line-height:1;transition:background 0.15s" onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''">&times;</div>
     </div>`;
   }).join('');
 
-  return `<div style="margin-top:24px">
-    <h2 style="margin-bottom:10px">Recent activity</h2>
-    <div style="background:var(--sur);border:1px solid var(--bor);border-radius:var(--rl);padding:0 16px">
+  if (!rows.trim()) return '';
+
+  return `<div id="activity-feed-wrap" style="margin-top:24px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+      <h2 style="margin:0">Recent activity</h2>
+      <button onclick="clearAllActivities()" style="font-size:12px;color:var(--tx3);background:none;border:none;cursor:pointer;padding:4px 8px;border-radius:6px;transition:background 0.15s" onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''">Clear all</button>
+    </div>
+    <div id="activity-feed-list" style="background:var(--sur);border:1px solid var(--bor);border-radius:var(--rl);padding:0 16px">
       ${rows}
     </div>
   </div>`;
@@ -2063,91 +2088,19 @@ async function expJoin(pid, isOpen) {
 /* ── Notifications ─────────────────────────────────────────────────── */
 async function showNotifs() {
   const m = document.getElementById('main');
-  let notifs = await StorageEngine.getNotifs(S.user.id);
+  const notifs = await StorageEngine.getNotifs(S.user.id);
   await StorageEngine.markAllRead(S.user.id);
   updateNBadge();
-
-  function renderList() {
-    const list = document.getElementById('notif-list');
-    if (!list) return;
-
-    if (notifs.length === 0) {
-      list.innerHTML = `<div class="empty"><div class="emico">${I.be}</div><p>All caught up!</p></div>`;
-      const clearBtn = document.getElementById('notif-clear-btn');
-      if (clearBtn) clearBtn.style.display = 'none';
-      return;
-    }
-
-    list.innerHTML = notifs.map(n => `
-      <div class="nitem ${n.read ? '' : 'unr'}" id="notif-${n.id}" style="cursor:pointer;transition:all 0.22s ease;position:relative">
-        ${!n.read ? '<div class="ndot"></div>' : '<div style="width:7px;flex-shrink:0"></div>'}
-        <div style="flex:1;min-width:0" onclick="dismissNotif('${n.id}')">
-          <div class="ntx">${esc(n.text)}</div>
-          <div class="ntm">${fmtD(n.createdAt)}</div>
-        </div>
-        <button onclick="event.stopPropagation();dismissNotif('${n.id}')" title="Dismiss"
-          style="width:28px;height:28px;border-radius:8px;border:none;background:none;color:var(--tx3);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all 0.15s;line-height:1"
-          onmouseover="this.style.background='var(--err-bg)';this.style.color='var(--err)'"
-          onmouseout="this.style.background='none';this.style.color='var(--tx3)'">×</button>
-      </div>`).join('');
-  }
-
   m.innerHTML = `<div class="pg stagger">
-    <div class="ph">
-      <h1>Notifications</h1>
-      <button class="btn btn-danger btn-sm" id="notif-clear-btn" onclick="clearAllNotifs()" style="${notifs.length === 0 ? 'display:none' : ''}">Clear all</button>
+    <div class="ph"><h1>Notifications</h1><button class="btn" onclick="go('notifs')">Refresh</button></div>
+    <div style="background:var(--sur);border:1px solid var(--bor);border-radius:var(--rl);overflow:hidden">
+      ${notifs.length === 0 ? `<div class="empty"><div class="emico">${I.be}</div><p>All caught up!</p></div>`
+        : notifs.map(n => `<div class="nitem ${n.read ? '' : 'unr'}">
+          ${!n.read ? '<div class="ndot"></div>' : '<div style="width:7px;flex-shrink:0"></div>'}
+          <div><div class="ntx">${esc(n.text)}</div><div class="ntm">${fmtD(n.createdAt)}</div></div>
+        </div>`).join('')}
     </div>
-    <div style="background:var(--sur);border:1px solid var(--bor);border-radius:var(--rl);overflow:hidden" id="notif-list"></div>
   </div>`;
-
-  renderList();
-
-  window.dismissNotif = async (id) => {
-    const el = document.getElementById('notif-' + id);
-    if (el) {
-      el.style.opacity = '0';
-      el.style.maxHeight = el.offsetHeight + 'px';
-      el.style.overflow = 'hidden';
-      requestAnimationFrame(() => {
-        el.style.maxHeight = '0';
-        el.style.paddingTop = '0';
-        el.style.paddingBottom = '0';
-        el.style.borderBottomWidth = '0';
-      });
-      setTimeout(() => el.remove(), 230);
-    }
-    await StorageEngine.deleteNotif(id);
-    notifs = notifs.filter(n => n.id !== id);
-    updateNBadge();
-
-    // If list is now empty, show empty state
-    setTimeout(() => {
-      if (notifs.length === 0) {
-        const list = document.getElementById('notif-list');
-        if (list) list.innerHTML = `<div class="empty"><div class="emico">${I.be}</div><p>All caught up!</p></div>`;
-        const clearBtn = document.getElementById('notif-clear-btn');
-        if (clearBtn) clearBtn.style.display = 'none';
-      }
-    }, 240);
-  };
-
-  window.clearAllNotifs = async () => {
-    const items = document.querySelectorAll('[id^="notif-"]');
-    items.forEach(el => {
-      el.style.transition = 'all 0.2s ease';
-      el.style.opacity = '0';
-      el.style.transform = 'translateX(20px)';
-    });
-    setTimeout(async () => {
-      await StorageEngine.clearAllNotifs(S.user.id);
-      notifs = [];
-      updateNBadge();
-      const list = document.getElementById('notif-list');
-      if (list) list.innerHTML = `<div class="empty"><div class="emico">${I.be}</div><p>All caught up!</p></div>`;
-      const clearBtn = document.getElementById('notif-clear-btn');
-      if (clearBtn) clearBtn.style.display = 'none';
-    }, 220);
-  };
 }
 
 /* ── Invite Friends Page ─────────────────────────────────────────── */
@@ -3293,8 +3246,8 @@ function renderFiles(container, p) {
               <div class="fmeta">${fmtSz(f.sizeBytes)} · v${f.version || 1} · ${fmtD(f.createdAt)}</div>
             </div>
             <div style="display:flex;gap:4px">
-              ${['image/png','image/jpeg','image/jpg','image/gif','image/webp','image/svg+xml','application/pdf'].some(mt => f.mimeType === mt || f.filename?.toLowerCase().match(/\.(png|jpg|jpeg|gif|webp|svg|pdf)$/))
-                ? `<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();previewFile('${f.id}','${esc(f.filename)}','${esc(f.fileUrl || '')}','${f.mimeType || ''}')" title="Preview">👁</button>` : ''}
+              ${/\.(png|jpg|jpeg|gif|webp|svg|pdf)$/i.test(f.filename || '')
+                ? `<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();previewFile('${f.id}','${esc(f.filename)}','','${f.mimeType || ''}')" title="Preview">👁</button>` : ''}
               <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();addFileTag('${f.id}')" title="Tag">🏷</button>
               <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();StorageEngine.downloadFile('${f.id}')" title="Download">${I.fi}</button>
               ${canDelete ? `<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();deleteFile('${f.id}','${p.id}')" title="Delete" style="color:var(--err)">${I.tr}</button>` : ''}
@@ -3341,19 +3294,25 @@ async function doUpload(file, pid) {
 
 /* ── File Preview Modal ─────────────────────────────────────────────── */
 async function previewFile(fileId, filename, fileUrl, mimeType) {
-  // Get signed URL if not already provided
-  let url = fileUrl;
-  if (!url || url === 'undefined') {
-    try {
-      const sb = StorageEngine._sb();
-      const { data } = await sb.storage.from('project-files').createSignedUrl(fileId, 60);
-      url = data?.signedUrl;
-    } catch(e) {}
-  }
+  // Files are stored as base64 dataUrl in the DB — load directly from there
+  let url = null;
+  let resolvedMimeType = mimeType;
+  try {
+    const fileRecord = await StorageEngine.get('files', fileId);
+    if (fileRecord?.dataUrl) {
+      url = fileRecord.dataUrl;
+      // If mimeType was not passed, try to infer from the dataUrl header
+      if (!resolvedMimeType && url.startsWith('data:')) {
+        resolvedMimeType = url.split(';')[0].replace('data:', '');
+      }
+    }
+  } catch(e) {}
+  // Fallback to a plain URL if one was explicitly provided and DB fetch failed
+  if (!url && fileUrl && fileUrl !== 'undefined') url = fileUrl;
   if (!url) { toast('Could not load preview', 'error'); return; }
 
-  const isImage = /\.(png|jpg|jpeg|gif|webp|svg)$/i.test(filename) || (mimeType && mimeType.startsWith('image/'));
-  const isPDF   = /\.pdf$/i.test(filename) || mimeType === 'application/pdf';
+  const isImage = /\.(png|jpg|jpeg|gif|webp|svg)$/i.test(filename) || (resolvedMimeType && resolvedMimeType.startsWith('image/'));
+  const isPDF   = /\.pdf$/i.test(filename) || resolvedMimeType === 'application/pdf';
 
   const existing = document.getElementById('file-preview-modal');
   if (existing) existing.remove();
@@ -3417,8 +3376,9 @@ function renderChat(container, p) {
     <!-- Header -->
     <div style="padding:10px 14px;border-bottom:1px solid var(--bor);background:var(--bg2);
                 display:flex;align-items:center;justify-content:space-between;flex-shrink:0">
-      <div style="font-size:13px;font-weight:600;color:var(--tx2)">
-        💬 Team chat · ${p.members?.length || 0} members
+      <div id="chat-member-header" style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--tx2)">
+        💬 Team chat
+        <div style="display:flex;gap:4px">${(p.members || []).slice(0, 6).map(m => av(m.user || m, 'sm')).join('')}</div>
       </div>
       <div id="chat-status" style="font-size:11px;color:var(--ok);font-weight:500;display:flex;align-items:center;gap:4px">
         <span style="width:6px;height:6px;border-radius:50%;background:var(--ok);display:inline-block"></span>
@@ -3661,12 +3621,12 @@ function updatePresenceDots() {
   // Update the chat member count with online count
   const memberHeader = document.getElementById('chat-member-header');
   if (memberHeader) {
+    memberHeader.querySelector('.online-count')?.remove();
     const onlineCount = Object.keys(online).length;
     if (onlineCount > 0) {
-      memberHeader.querySelector('.online-count')?.remove();
       const span = document.createElement('span');
       span.className = 'online-count';
-      span.style.cssText = 'font-size:11px;color:var(--ok);margin-left:6px;font-weight:600';
+      span.style.cssText = 'font-size:11px;color:var(--ok);font-weight:600';
       span.textContent = `· ${onlineCount} online`;
       memberHeader.appendChild(span);
     }
