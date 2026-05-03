@@ -271,6 +271,24 @@ const StorageEngine = (() => {
     await seed();
   };
 
+  // ── In-memory cache ────────────────────────────────────────────────
+  // Lightweight TTL cache so repeated navigations don't re-hit Supabase.
+  const _cache = new Map(); // key → { value, expires }
+  const CACHE_TTL = 30_000; // 30 s — stale after this, background refresh kicks in
+
+  function cacheGet(key) {
+    const entry = _cache.get(key);
+    if (!entry) return undefined;
+    if (Date.now() > entry.expires) { _cache.delete(key); return undefined; }
+    return entry.value;
+  }
+  function cacheSet(key, value, ttl = CACHE_TTL) {
+    _cache.set(key, { value, expires: Date.now() + ttl });
+  }
+  function cacheInvalidate(pattern) {
+    for (const k of _cache.keys()) { if (k.startsWith(pattern)) _cache.delete(k); }
+  }
+
   // ── Public API (identical surface as the old IndexedDB engine) ─────
   return {
     mode: () => 'supabase',
@@ -355,14 +373,49 @@ const StorageEngine = (() => {
     },
 
     getMyProjects: async (userId) => {
+      const ck = `myProjects:${userId}`;
+      const hit = cacheGet(ck);
+      if (hit) return hit;
       const mems = await getAll('members', 'userId', userId);
       const projs = await Promise.all(mems.map(m => get('projects', m.projectId)));
       const depts = await getAll('departments');
       const dm = Object.fromEntries(depts.map(d => [d.id, d]));
-      return projs.filter(p => p && p.status !== 'ARCHIVED').map(p => ({ ...p, department: dm[p.departmentId] }));
+      const result = projs.filter(p => p && p.status !== 'ARCHIVED').map(p => ({ ...p, department: dm[p.departmentId] }));
+      cacheSet(ck, result);
+      return result;
+    },
+
+    // Lightweight version for dashboard — skips messages (often the heaviest payload)
+    getProjectShallow: async (id) => {
+      const ck = `projectShallow:${id}`;
+      const hit = cacheGet(ck);
+      if (hit) return hit;
+      const p = await get('projects', id);
+      if (!p) return null;
+      const [mems, tasks, files, keys, dept, quizzes, allPerms] = await Promise.all([
+        getAll('members',     'projectId', id),
+        getAll('tasks',       'projectId', id),
+        getAll('files',       'projectId', id),
+        getAll('inviteKeys',  'projectId', id),
+        get('departments', p.departmentId),
+        getAll('quizzes',     'projectId', id),
+        getAll('permissions', 'projectId', id),
+      ]);
+      const allUsers = await getAll('users');
+      const um = Object.fromEntries(allUsers.map(u => [u.id, u]));
+      const membersRich = mems.map(m => ({ ...m, user: { ...um[m.userId], department: dept } }));
+      const activeKey = keys.find(k => k.isActive);
+      const sessionUserId = getSessionLocal();
+      const myPerm = allPerms.find(perm => perm.userId === sessionUserId);
+      const result = { ...p, department: dept, members: membersRich, tasks, files, messages: [], inviteKey: activeKey || null, quizzes, _myPerms: myPerm || null };
+      cacheSet(ck, result);
+      return result;
     },
 
     getProject: async (id) => {
+      const ck = `project:${id}`;
+      const hit = cacheGet(ck);
+      if (hit) return hit;
       const p = await get('projects', id);
       if (!p) return null;
       const [mems, tasks, files, msgs, keys, dept, quizzes, allPerms] = await Promise.all([
@@ -382,17 +435,27 @@ const StorageEngine = (() => {
       const activeKey = keys.find(k => k.isActive);
       const sessionUserId = getSessionLocal();
       const myPerm = allPerms.find(perm => perm.userId === sessionUserId);
-      return { ...p, department: dept, members: membersRich, tasks, files, messages: msgsRich, inviteKey: activeKey || null, quizzes, _myPerms: myPerm || null };
+      const result = { ...p, department: dept, members: membersRich, tasks, files, messages: msgsRich, inviteKey: activeKey || null, quizzes, _myPerms: myPerm || null };
+      cacheSet(ck, result);
+      return result;
     },
+
+    invalidateProject: (id) => {
+      cacheInvalidate(`project:${id}`);
+      cacheInvalidate(`projectShallow:${id}`);
+    },
+    invalidateMyProjects: (userId) => cacheInvalidate(`myProjects:${userId}`),
 
     updateProject: async (id, data) => {
       const p = await get('projects', id);
       await put('projects', { ...p, ...data });
+      cacheInvalidate(`project:${id}`); cacheInvalidate(`projectShallow:${id}`); cacheInvalidate('myProjects:');
     },
 
     archiveProject: async (id) => {
       const p = await get('projects', id);
       await put('projects', { ...p, status: 'ARCHIVED' });
+      cacheInvalidate(`project:${id}`); cacheInvalidate(`projectShallow:${id}`); cacheInvalidate('myProjects:');
     },
 
     deleteProject: async (id) => {
@@ -401,6 +464,7 @@ const StorageEngine = (() => {
         for (const item of items) await del(store, item.id);
       }
       await del('projects', id);
+      cacheInvalidate(`project:${id}`); cacheInvalidate(`projectShallow:${id}`); cacheInvalidate('myProjects:');
     },
 
     getExplore: async (userId, { dept, openOnly, q } = {}) => {
@@ -465,15 +529,21 @@ const StorageEngine = (() => {
     createTask: async (data) => {
       const t = { id: uid(), description: '', dueDate: null, ...data, createdAt: now() };
       await put('tasks', t);
+      cacheInvalidate(`project:${data.projectId}`); cacheInvalidate(`projectShallow:${data.projectId}`);
       return t;
     },
     updateTask: async (id, data) => {
       const t = await get('tasks', id);
       const u = { ...t, ...data };
       await put('tasks', u);
+      if (t?.projectId) { cacheInvalidate(`project:${t.projectId}`); cacheInvalidate(`projectShallow:${t.projectId}`); }
       return u;
     },
-    deleteTask: (id) => del('tasks', id),
+    deleteTask: async (id) => {
+      const t = await get('tasks', id);
+      await del('tasks', id);
+      if (t?.projectId) { cacheInvalidate(`project:${t.projectId}`); cacheInvalidate(`projectShallow:${t.projectId}`); }
+    },
     getTask: (id) => get('tasks', id),
 
     // Files (base64 stored in DB — works without Supabase Storage bucket)
@@ -483,6 +553,7 @@ const StorageEngine = (() => {
         const f = { id: uid(), projectId, uploadedById, filename: file.name, fileType: file.name.split('.').pop() || 'bin', sizeBytes: file.size, dataUrl: reader.result, version: 1, tags: [], createdAt: now() };
         await put('files', f);
         await put('vaultVersions', { id: uid(), fileId: f.id, version: 1, dataUrl: reader.result, createdAt: now() });
+        cacheInvalidate(`project:${projectId}`); cacheInvalidate(`projectShallow:${projectId}`);
         resolve(f);
       };
       reader.readAsDataURL(file);
@@ -491,6 +562,7 @@ const StorageEngine = (() => {
     updateFileTags: async (fileId, tags) => {
       const f = await get('files', fileId);
       await put('files', { ...f, tags });
+      if (f?.projectId) { cacheInvalidate(`project:${f.projectId}`); cacheInvalidate(`projectShallow:${f.projectId}`); }
     },
 
     downloadFile: async (id) => {
@@ -503,15 +575,17 @@ const StorageEngine = (() => {
     },
 
     deleteFile: async (id) => {
+      const f = await get('files', id);
       await del('files', id);
       const versions = await getAll('vaultVersions', 'fileId', id);
       for (const v of versions) await del('vaultVersions', v.id);
+      if (f?.projectId) { cacheInvalidate(`project:${f.projectId}`); cacheInvalidate(`projectShallow:${f.projectId}`); }
     },
 
     // Messages
-    sendMsg: async (projectId, senderId, content) => {
+    sendMsg: async (projectId, senderId, content, replyTo = null) => {
       if (senderId === '__demo__') throw new Error('Sign up to send messages.');
-      const m = { id: uid(), projectId, senderId, content, sentAt: now() };
+      const m = { id: uid(), projectId, senderId, content, sentAt: now(), ...(replyTo ? { replyToId: replyTo.id, replyToContent: replyTo.content, replyToSender: replyTo.senderName } : {}) };
       await put('messages', m);
       return m;
     },
@@ -1499,7 +1573,7 @@ async function showDashboard() {
     StorageEngine.getDepts()
   ]);
   const projects = _rawProjects;
-  const enriched = await Promise.all(projects.map(p => StorageEngine.getProject(p.id)));
+  const enriched = await Promise.all(projects.map(p => StorageEngine.getProjectShallow(p.id)));
   const allTasksFlat = enriched.flatMap(p => (p.tasks || []).map(t => ({ ...t, _ptitle: p.title })));
   const done = allTasksFlat.filter(t => t.status === 'DONE');
   const { overdue, today, thisWeek, nextWeek, all: dueTasks } = buildDueSoonTasks(enriched);
@@ -1685,10 +1759,9 @@ async function runGlobalSearch(query) {
 
   try {
     const projects = await StorageEngine.getMyProjects(S.user.id);
-    const enriched = await Promise.all(projects.map(p => StorageEngine.getProject(p.id)));
+    const enriched = await Promise.all(projects.map(p => StorageEngine.getProjectShallow(p.id)));
 
     const results = [];
-
     enriched.forEach(p => {
       // Tasks
       (p.tasks || []).filter(t => t.title?.toLowerCase().includes(q) || t.description?.toLowerCase().includes(q)).forEach(t => {
@@ -1725,11 +1798,25 @@ async function runGlobalSearch(query) {
 }
 
 /* ── Activity Feed ─────────────────────────────────────────────────── */
-const _dismissedActivities = new Set();
+const _ACTIVITY_STORAGE_KEY = 'uc_dismissed_activities';
 
-function dismissActivity(idx) {
-  _dismissedActivities.add(idx);
-  const item = document.getElementById('activity-item-' + idx);
+function _loadDismissed() {
+  try { return new Set(JSON.parse(localStorage.getItem(_ACTIVITY_STORAGE_KEY) || '[]')); } catch { return new Set(); }
+}
+
+function _saveDismissed(set) {
+  try { localStorage.setItem(_ACTIVITY_STORAGE_KEY, JSON.stringify([...set])); } catch {}
+}
+
+function _activityKey(e) {
+  return `${e.ts}:${e.pid}:${e.icon}`;
+}
+
+function dismissActivity(key) {
+  const dismissed = _loadDismissed();
+  dismissed.add(key);
+  _saveDismissed(dismissed);
+  const item = document.getElementById('activity-item-' + CSS.escape(key));
   if (item) item.remove();
   const feed = document.getElementById('activity-feed-list');
   if (feed && feed.children.length === 0) {
@@ -1739,13 +1826,13 @@ function dismissActivity(idx) {
 }
 
 function clearAllActivities() {
+  const dismissed = _loadDismissed();
+  document.querySelectorAll('[data-activity-key]').forEach(el => {
+    dismissed.add(el.getAttribute('data-activity-key'));
+  });
+  _saveDismissed(dismissed);
   const wrap = document.getElementById('activity-feed-wrap');
   if (wrap) wrap.remove();
-  const items = document.querySelectorAll('[id^="activity-item-"]');
-  items.forEach(el => {
-    const idx = el.id.replace('activity-item-', '');
-    _dismissedActivities.add(idx);
-  });
 }
 
 function renderActivityFeed(projects) {
@@ -1792,16 +1879,19 @@ function renderActivityFeed(projects) {
   events.sort((a, b) => b.ts - a.ts);
   const recent = events.slice(0, 12);
 
-  const rows = recent.map((e, i) => {
-    if (_dismissedActivities.has(String(i))) return '';
+  const dismissed = _loadDismissed();
+  const rows = recent.map((e) => {
+    const key = _activityKey(e);
+    if (dismissed.has(key)) return '';
     const ago = fmtAgo(e.ts);
-    return `<div id="activity-item-${i}" style="display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-bottom:1px solid var(--bor)">
-      <div style="width:28px;height:28px;border-radius:8px;background:var(--bg2);display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0;cursor:pointer" onclick="dismissActivity('${i}');go('ws',{id:'${e.pid}'})">${e.icon}</div>
-      <div style="flex:1;min-width:0;cursor:pointer" onclick="dismissActivity('${i}');go('ws',{id:'${e.pid}'})">
+    const safeKey = key.replace(/'/g, "\\'");
+    return `<div id="activity-item-${key}" data-activity-key="${esc(key)}" style="display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-bottom:1px solid var(--bor)">
+      <div style="width:28px;height:28px;border-radius:8px;background:var(--bg2);display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0;cursor:pointer" onclick="dismissActivity('${safeKey}');go('ws',{id:'${e.pid}'})">${e.icon}</div>
+      <div style="flex:1;min-width:0;cursor:pointer" onclick="dismissActivity('${safeKey}');go('ws',{id:'${e.pid}'})">
         <div style="font-size:13px;color:var(--tx);line-height:1.4">${e.text}</div>
         <div style="font-size:11px;color:var(--tx3);margin-top:2px">${esc(e.project)} · ${ago}</div>
       </div>
-      <div onclick="dismissActivity('${i}')" title="Remove" style="flex-shrink:0;width:20px;height:20px;display:flex;align-items:center;justify-content:center;border-radius:6px;color:var(--tx3);cursor:pointer;font-size:14px;line-height:1;transition:background 0.15s" onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''">&times;</div>
+      <div onclick="dismissActivity('${safeKey}')" title="Remove" style="flex-shrink:0;width:20px;height:20px;display:flex;align-items:center;justify-content:center;border-radius:6px;color:var(--tx3);cursor:pointer;font-size:14px;line-height:1;transition:background 0.15s" onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''">×</div>
     </div>`;
   }).join('');
 
@@ -2000,7 +2090,7 @@ async function toggleTaskDone(taskId, el) {
 async function showProjects() {
   const m = document.getElementById('main');
   const projects = await StorageEngine.getMyProjects(S.user.id);
-  const enriched = await Promise.all(projects.map(p => StorageEngine.getProject(p.id)));
+  const enriched = await Promise.all(projects.map(p => StorageEngine.getProjectShallow(p.id)));
   m.innerHTML = `<div class="pg stagger">
     <div class="ph">
       <h1>My projects <span style="font-size:14px;color:var(--tx3);font-weight:400">${enriched.length}</span></h1>
@@ -3401,6 +3491,16 @@ function renderChat(container, p) {
     <div id="typing-bar" style="padding:0 16px 4px;font-size:11.5px;color:var(--tx3);
                                  font-style:italic;min-height:20px;flex-shrink:0"></div>
 
+    <!-- Reply banner (hidden until replying) -->
+    <div id="reply-banner" style="display:none;align-items:center;gap:8px;padding:7px 14px;border-top:1px solid var(--bor);background:var(--bg2);flex-shrink:0">
+      <div style="width:3px;align-self:stretch;background:var(--brand);border-radius:2px;flex-shrink:0"></div>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:11px;font-weight:700;color:var(--brand);margin-bottom:1px" id="reply-banner-name"></div>
+        <div style="font-size:12px;color:var(--tx3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" id="reply-banner-text"></div>
+      </div>
+      <button onclick="clearReply()" style="background:none;border:none;cursor:pointer;color:var(--tx3);font-size:16px;padding:0;line-height:1;flex-shrink:0" title="Cancel reply">×</button>
+    </div>
+
     <!-- Input bar -->
     <div style="padding:10px 14px;border-top:1px solid var(--bor);background:var(--sur);
                 display:flex;gap:8px;align-items:center;flex-shrink:0;position:relative">
@@ -3414,7 +3514,7 @@ function renderChat(container, p) {
         onfocus="this.style.borderColor='var(--brand)'"
         onblur="this.style.borderColor='var(--bor)'"
         oninput="broadcastTyping('${p.id}');handleMentionInput(this)"
-        onkeydown="if(event.key==='Escape'){closeMentionDropdown()}else if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendChat('${p.id}')}">
+        onkeydown="if(event.key==='Escape'){closeMentionDropdown();clearReply()}else if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendChat('${p.id}')}">
       <button onclick="sendChat('${p.id}')"
         style="width:40px;height:40px;border-radius:50%;background:var(--brand);color:#fff;
                border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;
@@ -3464,6 +3564,9 @@ function startChatRealtime(projectId, myUserId, isLead) {
         id: row.id, content: row.content,
         senderId: row.sender_id, sentAt: row.sent_at,
         sender,
+        replyToId: row.reply_to_id || null,
+        replyToContent: row.reply_to_content || null,
+        replyToSender: row.reply_to_sender || null,
       };
 
       const msgs = document.getElementById('msgs');
@@ -3802,18 +3905,45 @@ function chatBubbleHTML(msg, myId, isLead) {
     });
   };
 
-  return `<div class="chat-msg-row" data-mid="${msg.id}" style="display:flex;gap:9px;align-items:flex-end;${isSelf ? 'flex-direction:row-reverse' : ''}">
+  // Reply quote block (shown if this message is a reply)
+  const replyQuote = msg.replyToId ? `
+    <div onclick="document.querySelector('.chat-msg-row[data-mid=\\'${msg.replyToId}\\']')?.scrollIntoView({behavior:'smooth',block:'center'})"
+      style="display:flex;align-items:stretch;gap:0;margin-bottom:5px;border-radius:8px;overflow:hidden;cursor:pointer;opacity:0.85;max-width:100%">
+      <div style="width:3px;flex-shrink:0;background:${isSelf ? 'rgba(255,255,255,0.6)' : 'var(--brand)'}"></div>
+      <div style="padding:5px 8px;background:${isSelf ? 'rgba(0,0,0,0.15)' : 'var(--bg3)'};flex:1;min-width:0">
+        <div style="font-size:10px;font-weight:700;color:${isSelf ? 'rgba(255,255,255,0.7)' : 'var(--brand)'};margin-bottom:2px">${esc(msg.replyToSender || 'Unknown')}</div>
+        <div style="font-size:11px;color:${isSelf ? 'rgba(255,255,255,0.6)' : 'var(--tx3)'};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(msg.replyToContent || '')}</div>
+      </div>
+    </div>` : '';
+
+  const senderName = isSelf ? 'You' : (sender?.fullName || 'Unknown');
+
+  return `<div class="chat-msg-row" data-mid="${msg.id}"
+    style="display:flex;gap:9px;align-items:flex-end;${isSelf ? 'flex-direction:row-reverse' : ''};position:relative;touch-action:pan-y"
+    data-swipe-start=""
+    ontouchstart="chatSwipeStart(event,this)"
+    ontouchmove="chatSwipeMove(event,this)"
+    ontouchend="chatSwipeEnd(event,this,'${msg.id}','${(senderName).replace(/'/g,"\\'")}','${(msg.content||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/\n/g,' ').slice(0,80)}')"
+  >
     <div style="width:30px;height:30px;border-radius:50%;background:${bg};color:${col};font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-bottom:2px">
       ${ini(sender?.fullName)}
     </div>
-    <div style="max-width:68%;${isSelf ? 'align-items:flex-end' : ''}; display:flex;flex-direction:column">
+    <div style="max-width:68%;${isSelf ? 'align-items:flex-end' : ''}; display:flex;flex-direction:column;position:relative" class="chat-bubble-wrap"
+      onmouseenter="this.querySelector('.reply-btn')&&(this.querySelector('.reply-btn').style.opacity='1')"
+      onmouseleave="this.querySelector('.reply-btn')&&(this.querySelector('.reply-btn').style.opacity='0')"
+    >
       <div style="font-size:11px;color:var(--tx3);margin-bottom:3px;${isSelf ? 'text-align:right' : ''}">
-        ${esc(isSelf ? 'You' : (sender?.fullName || 'Unknown'))} · ${new Date(msg.sentAt || Date.now()).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}
+        ${esc(senderName)} · ${new Date(msg.sentAt || Date.now()).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}
         ${canDelete ? `<button onclick="deleteChatMsg('${msg.id}')" style="background:none;border:none;cursor:pointer;color:var(--tx3);font-size:11px;margin-left:4px;padding:0;line-height:1;opacity:0.5" onmouseover="this.style.opacity=1;this.style.color='var(--err)'" onmouseout="this.style.opacity=0.5;this.style.color='var(--tx3)'" title="Delete">✕</button>` : ''}
       </div>
       <div style="padding:9px 14px;border-radius:${isSelf ? '16px 16px 4px 16px' : '16px 16px 16px 4px'};background:${isSelf ? 'var(--brand)' : 'var(--bg2)'};color:${isSelf ? '#fff' : 'var(--tx)'};font-size:14px;line-height:1.5;word-break:break-word">
+        ${replyQuote}
         ${renderContent(msg.content)}
       </div>
+      <!-- Desktop reply button — appears on hover -->
+      <button class="reply-btn" title="Reply"
+        onclick="setReply('${msg.id}','${(senderName).replace(/'/g,"\\'")}','${(msg.content||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/\n/g,' ').slice(0,80)}')"
+        style="position:absolute;${isSelf ? 'left:-30px' : 'right:-30px'};bottom:6px;opacity:0;transition:opacity 0.15s;background:var(--bg3);border:1px solid var(--bor);color:var(--tx2);width:24px;height:24px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:12px;padding:0">↩</button>
     </div>
   </div>`;
 }
@@ -3825,11 +3955,15 @@ async function sendChat(pid) {
   if (!txt) return;
   inp.value = '';
 
+  const replyTo = window._replyTo || null;
+  clearReply();
+
   // Optimistic render — show immediately without waiting for DB
   const p      = window._wsProject;
   const isLead = p?.members?.some(m => m.userId === S.user.id && m.role === 'LEAD');
   const tempId  = 'tmp-' + Date.now();
-  const tempMsg = { id: tempId, content: txt, senderId: S.user.id, sentAt: new Date().toISOString(), sender: S.user };
+  const tempMsg = { id: tempId, content: txt, senderId: S.user.id, sentAt: new Date().toISOString(), sender: S.user,
+    ...(replyTo ? { replyToId: replyTo.id, replyToContent: replyTo.content, replyToSender: replyTo.senderName } : {}) };
   const msgs    = document.getElementById('msgs');
 
   if (msgs) {
@@ -3841,7 +3975,7 @@ async function sendChat(pid) {
   }
 
   try {
-    const saved = await StorageEngine.sendMsg(pid, S.user.id, txt);
+    const saved = await StorageEngine.sendMsg(pid, S.user.id, txt, replyTo);
     // Update temp element with real ID
     const tempEl = msgs?.querySelector(`[data-mid="${tempId}"]`);
     if (tempEl) tempEl.setAttribute('data-mid', saved.id);
@@ -3856,7 +3990,57 @@ async function sendChat(pid) {
   }
 }
 
-async function deleteChatMsg(msgId) {
+/* ── Reply system ───────────────────────────────────────────────────── */
+window._replyTo = null; // { id, senderName, content }
+
+function setReply(msgId, senderName, content) {
+  window._replyTo = { id: msgId, senderName, content };
+  const banner = document.getElementById('reply-banner');
+  if (!banner) return;
+  banner.style.display = 'flex';
+  document.getElementById('reply-banner-name').textContent = senderName;
+  document.getElementById('reply-banner-text').textContent = content;
+  document.getElementById('chat-in')?.focus();
+}
+
+function clearReply() {
+  window._replyTo = null;
+  const banner = document.getElementById('reply-banner');
+  if (banner) banner.style.display = 'none';
+}
+
+/* ── Swipe-to-reply (mobile touch) ─────────────────────────────────── */
+function chatSwipeStart(e, el) {
+  el._swipeX = e.touches[0].clientX;
+  el._swiped = false;
+  el.style.transition = 'none';
+}
+
+function chatSwipeMove(e, el) {
+  const dx = e.touches[0].clientX - el._swipeX;
+  const dir = el.style.flexDirection === 'row-reverse' ? -1 : 1; // self = RTL
+  const pull = dir * dx; // positive = pulling toward center (right for others, left for self)
+  if (pull > 0 && pull < 80) {
+    el.style.transform = `translateX(${dir * pull}px)`;
+  }
+}
+
+function chatSwipeEnd(e, el, msgId, senderName, content) {
+  const dx = e.changedTouches[0].clientX - el._swipeX;
+  const dir = el.style.flexDirection === 'row-reverse' ? -1 : 1;
+  const pull = dir * dx;
+  el.style.transition = 'transform 0.25s ease';
+  el.style.transform = 'translateX(0)';
+  if (pull > 48) {
+    setReply(msgId, senderName, content);
+    // Brief haptic-style flash
+    el.style.background = 'var(--brand)';
+    setTimeout(() => el.style.background = '', 200);
+  }
+}
+
+
+ async function deleteMsg(msgId) { // Added opening declaration (needed for async/await)
   if (demoGuard()) return;
   if (!confirm('Delete this message?')) return;
   await StorageEngine.deleteMsg(msgId);
@@ -3869,6 +4053,7 @@ async function deleteChatMsg(msgId) {
   }
   toast('Message deleted');
 }
+  
 
 /* ── Quiz Module ────────────────────────────────────────────────────── */
 function renderQuiz(container, p) {
