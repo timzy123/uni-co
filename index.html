@@ -9,10 +9,6 @@
   <meta http-equiv="X-Frame-Options" content="DENY">
   <meta http-equiv="Referrer-Policy" content="strict-origin-when-cross-origin">
   <meta http-equiv="Permissions-Policy" content="camera=(), microphone=(), geolocation=()">
-  <meta name="description" content="uni-co — University collaboration platform for project management, teamwork, and academic productivity.">
-  <meta name="theme-color" content="#534AB7" media="(prefers-color-scheme: light)">
-  <meta name="theme-color" content="#1E1C35" media="(prefers-color-scheme: dark)">
-  <meta name="mobile-web-app-capable" content="yes">
 
   <script>
     try {
@@ -21,10 +17,15 @@
     } catch(e) {}
   </script>
 
-  <!-- Non-blocking fonts -->
+  <!-- Resource hints — resolve origins before they're needed -->
   <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin>
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+  <link rel="dns-prefetch" href="https://cdn.jsdelivr.net">
+
+  <!-- Non-blocking fonts -->
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+  <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"></noscript>
 
   <!-- Inline critical styles so spinner works before styles.css loads -->
   <style>
@@ -56,10 +57,6 @@
 
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="mobile.css">
-
-  <!-- DNS prefetch for fast Supabase connection -->
-  <link rel="dns-prefetch" href="https://cdn.jsdelivr.net">
-  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 
   <!-- Supabase JS client (loaded before app.js so StorageEngine can use it) -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
