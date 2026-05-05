@@ -2464,7 +2464,7 @@ input:checked + .tslider::before { transform: translateX(16px); }
   color: var(--brand);
   letter-spacing: 0.05em;
   margin-top: 2px;
-
+}
 /* ═══════════════════════════════════════════════════════════════════
    RESPONSIVE — COMPLETE MOBILE INTERFACE
    Breakpoints: 900px (tablet), 600px (phone), 400px (small phone)
