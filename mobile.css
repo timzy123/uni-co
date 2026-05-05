@@ -1,62 +1,49 @@
 /* ═══════════════════════════════════════════════════════════════════
-   uni-co — mobile.css
-   Additive mobile overrides for styles.css only.
-   No workstation rules. No new features. Pure layout fixes.
+   uni-co — mobile.css  (Polished Edition)
+   Additive mobile overrides. No desktop rules. No new features.
 ═══════════════════════════════════════════════════════════════════ */
 
-/* ── Keyboard / viewport shift fix ───────────────────────────────── */
-/* Prevents horizontal pan when soft keyboard opens on Android/iOS    */
+/* ── Overflow / horizontal pan prevention ───────────────────────── */
 html, body {
   width: 100%;
   max-width: 100vw;
   overflow-x: hidden;
 }
 
-@media (max-width: 900px) {
-  html, body {
-    position: relative !important;
-    overflow-x: hidden !important;
-  }
+/* ── App shell — always fill the viewport ───────────────────────── */
+#app {
+  height: 100dvh;
+  overflow: hidden;
+}
 
-  /* font-size 16px prevents iOS/Android auto-zoom on input focus     */
-  input:not([type="range"]),
-  textarea,
-  select {
+/* ── Key card: visible only on mobile ───────────────────────────── */
+.mob-key-card { display: none; }
+@media (max-width: 900px) { .mob-key-card { display: block; } }
+
+/* ══════════════════════════════════════════════════════════════════
+   TABLET  ≤ 900px
+══════════════════════════════════════════════════════════════════ */
+@media (max-width: 900px) {
+
+  html, body { position: relative !important; overflow-x: hidden !important; }
+
+  /* Inputs — 16px prevents iOS/Android auto-zoom */
+  input:not([type="range"]), textarea, select {
     font-size: 16px !important;
     max-width: 100% !important;
     box-sizing: border-box !important;
   }
-}
 
-/* Key card is injected into overview by app.js — hide it on desktop */
-.mob-key-card { display: none; }
-@media (max-width: 900px) { .mob-key-card { display: block; } }
-
-/* ── Toasts: lift above bottom nav ───────────────────────────────── */
-@media (max-width: 900px) {
+  /* ── Toasts: lift above bottom nav ─────────────────────────────── */
   #toasts {
     bottom: calc(80px + env(safe-area-inset-bottom, 0px)) !important;
     right: 12px !important;
     left: 12px !important;
     align-items: stretch !important;
   }
-  .toast {
-    min-width: 0 !important;
-    max-width: 100% !important;
-  }
-}
+  .toast { min-width: 0 !important; max-width: 100% !important; }
 
-/* ══════════════════════════════════════════════════════════════════
-   TABLET (≤ 900px)
-══════════════════════════════════════════════════════════════════ */
-@media (max-width: 900px) {
-
-  /* Prevent body scroll when sidebar/drawer is open */
-  body {
-    overflow-x: hidden;
-  }
-
-  /* Mobile header */
+  /* ── Mobile header ─────────────────────────────────────────────── */
   .mob-header {
     display: flex !important;
     position: sticky;
@@ -69,7 +56,7 @@ html, body {
     box-shadow: 0 1px 8px rgba(0,0,0,0.06);
   }
 
-  /* Sidebar overlay */
+  /* ── Sidebar overlay ───────────────────────────────────────────── */
   #sidebar-overlay {
     display: none;
     position: fixed;
@@ -81,7 +68,7 @@ html, body {
   }
   #sidebar-overlay.on { display: block; }
 
-  /* Sidebar as off-canvas drawer */
+  /* ── Sidebar as off-canvas drawer ──────────────────────────────── */
   .sidebar {
     position: fixed !important;
     top: 0; left: 0;
@@ -89,7 +76,6 @@ html, body {
     height: 100dvh;
     transform: translateX(-108%);
     z-index: 200;
-    box-shadow: none;
     transition: transform 0.3s cubic-bezier(0.4,0,0.2,1);
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
@@ -101,14 +87,9 @@ html, body {
   }
   .sb-close { display: flex !important; }
 
-  /* Layout — Fixed scroll containment */
-  #app {
-    grid-template-columns: 1fr !important;
-    height: 100dvh;
-    overflow: hidden;
-  }
+  /* ── App layout ────────────────────────────────────────────────── */
+  #app { grid-template-columns: 1fr !important; }
 
-  /* Fixed height for #main to enable proper scrolling */
   #main {
     height: calc(100dvh - var(--hh) - 64px) !important;
     max-height: calc(100dvh - var(--hh) - 64px) !important;
@@ -119,254 +100,33 @@ html, body {
     overscroll-behavior-y: contain;
   }
 
-  /* Stats */
+  /* ── Stats / grids ─────────────────────────────────────────────── */
   .stats { grid-template-columns: 1fr 1fr !important; gap: 10px !important; }
-
-  /* Project grid */
   .pgrid { grid-template-columns: 1fr !important; gap: 10px !important; }
 
-  /* Workspace */
+  /* ── Workspace layout ──────────────────────────────────────────── */
   .wsbody {
     grid-template-columns: 1fr !important;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
     height: auto;
   }
-  .wsmain {
-    overflow-y: auto;
-    padding: 14px;
-    -webkit-overflow-scrolling: touch;
-  }
-  .ws {
-    height: auto !important;
-    display: flex;
-    flex-direction: column;
-  }
+  .wsmain { overflow-y: auto; padding: 14px; -webkit-overflow-scrolling: touch; }
+  .ws { height: auto !important; display: flex; flex-direction: column; }
   .wsside { display: none !important; }
 
-  /* Mobile side drawer */
-  #mob-side-drawer {
-    position: fixed;
-    top: 0; right: -110%;
-    width: min(320px, 92vw);
-    height: 100dvh;
-    background: var(--sur);
-    border-left: 1px solid var(--bor);
-    z-index: 300;
-    overflow-y: auto;
-    -webkit-overflow-scrolling: touch;
-    transition: right 0.3s cubic-bezier(0.4,0,0.2,1);
-    padding: 20px 16px calc(20px + env(safe-area-inset-bottom,0px));
-    box-shadow: none;
+  /* ── Task sort bar — two-row wrap so Export is never clipped ───── */
+  .task-sort-bar {
+    flex-wrap: wrap !important;
+    gap: 6px !important;
+    row-gap: 6px !important;
+    overflow-x: visible !important;
+    padding-bottom: 6px !important;
   }
-  #mob-side-drawer.open {
-    right: 0;
-    box-shadow: -4px 0 32px rgba(0,0,0,0.18);
-  }
-  #mob-side-overlay {
-    display: none;
-    position: fixed;
-    inset: 0;
-    background: rgba(15,14,26,0.45);
-    z-index: 299;
-    backdrop-filter: blur(2px);
-  }
-  #mob-side-overlay.on { display: block; }
+  .task-sort-bar .export-btn { order: 10; }   /* push Export after sort chips */
+  .task-sort-bar .btn-primary { order: 11; }  /* Add task last */
 
-  .mob-drawer-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 18px;
-    padding-bottom: 14px;
-    border-bottom: 1px solid var(--bor);
-  }
-  .mob-drawer-title { font-size: 15px; font-weight: 700; color: var(--tx); }
-  .mob-drawer-close {
-    width: 30px; height: 30px;
-    border-radius: 8px;
-    background: var(--bg3);
-    display: flex; align-items: center; justify-content: center;
-    color: var(--tx2); cursor: pointer; font-size: 16px;
-    transition: all 0.15s;
-  }
-  .mob-drawer-close:hover { background: var(--bor); color: var(--tx); }
-
-  .mob-team-btn {
-    display: inline-flex !important;
-    align-items: center;
-    gap: 6px;
-    padding: 6px 12px;
-    border-radius: var(--r);
-    background: var(--bg2);
-    border: 1px solid var(--bor);
-    font-size: 12.5px;
-    font-weight: 600;
-    color: var(--tx2);
-    cursor: pointer;
-    transition: all 0.18s;
-  }
-  .mob-team-btn:hover { background: var(--bg3); color: var(--tx); }
-
-  /* Bottom nav */
-  #mob-nav {
-    display: block !important;
-    position: fixed;
-    bottom: 0; left: 0; right: 0;
-    background: var(--glass);
-    -webkit-backdrop-filter: blur(20px);
-    backdrop-filter: blur(20px);
-    border-top: 1px solid var(--bor);
-    padding: 6px 0 max(8px, env(safe-area-inset-bottom, 8px));
-    z-index: 100;
-    box-shadow: 0 -1px 16px rgba(0,0,0,0.07);
-    /* Auto-hide transition */
-    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1),
-                opacity   0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    will-change: transform;
-  }
-  /* Hidden state — slides down out of view */
-  #mob-nav.nav-hidden {
-    transform: translateY(100%);
-    opacity: 0;
-    pointer-events: none;
-  }
-  /* Visible state — snaps back */
-  #mob-nav.nav-visible {
-    transform: translateY(0);
-    opacity: 1;
-    pointer-events: auto;
-  }
-  /* Page padding adapts — default keeps full clearance */
-  .pg, .pg-full {
-    transition: padding-bottom 0.28s ease;
-  }
-
-  /* Settings nav */
-  .setlayout { grid-template-columns: 1fr !important; gap: 12px; }
-  .setnav {
-    flex-direction: row !important;
-    flex-wrap: wrap;
-    position: sticky !important;
-    top: 0;
-    z-index: 10;
-    gap: 4px;
-    background: var(--bg2);
-    padding: 8px;
-    border-radius: var(--rl);
-    border: 1px solid var(--bor);
-  }
-  .setni {
-    flex: 1;
-    min-width: 80px;
-    justify-content: center;
-    font-size: 12px;
-    padding: 8px 6px;
-    min-height: 44px;
-    border-radius: var(--r);
-  }
-
-  /* Page padding — extra bottom so content clears the fixed nav bar */
-  .pg, .pg-full {
-    padding: 16px 14px calc(100px + env(safe-area-inset-bottom, 0px));
-  }
-
-  /* Form rows */
-  .frow { flex-direction: column !important; gap: 0 !important; }
-  .frow > .fg { flex: none !important; }
-
-  /* Sidebar footer */
-  .uchip { padding: 10px; }
-  .uname { font-size: 14px; }
-  .udept { font-size: 12px; }
-}
-
-#app {
-  height: 100dvh;
-  overflow: hidden;
-}
-
-/* ══════════════════════════════════════════════════════════════════
-   PHONE (≤ 600px)
-══════════════════════════════════════════════════════════════════ */
-@media (max-width: 600px) {
-  :root { --hh: 52px; }
-
-  /* Mobile header */
-  .mob-header { padding: 0 12px; height: var(--hh); }
-  .mob-btn { width: 40px; height: 40px; border-radius: 10px; }
-
-  /* Fixed scroll container for phone */
-  #app {
-    height: 100dvh;
-    overflow: hidden;
-  }
-
-  #main {
-    height: calc(100dvh - var(--hh) - 66px) !important;
-    max-height: calc(100dvh - var(--hh) - 66px) !important;
-    min-height: auto !important;
-    overflow-y: auto !important;
-    overflow-x: hidden !important;
-    -webkit-overflow-scrolling: touch;
-    overscroll-behavior-y: contain;
-  }
-
-  /* Page padding */
-  .pg, .pg-full {
-    padding: 14px 12px calc(106px + env(safe-area-inset-bottom, 0px));
-  }
-
-  /* Auth */
-  .authpg { padding: 16px 10px; align-items: flex-start; padding-top: 28px; }
-  .authcard {
-    padding: 24px 16px 28px;
-    border-radius: 20px;
-    max-width: 100%;
-    width: 100% !important;
-  }
-
-  /* Modals: bottom sheet */
-  .ov { align-items: flex-end !important; padding: 0 !important; }
-  .modal {
-    border-radius: 22px 22px 0 0 !important;
-    max-width: 100% !important;
-    width: 100% !important;
-    max-height: 92dvh;
-    padding-bottom: env(safe-area-inset-bottom, 0px);
-    animation: slideUpSheet 0.26s cubic-bezier(0.34,1.2,0.64,1) !important;
-  }
-  @keyframes slideUpSheet {
-    from { transform: translateY(60px); opacity: 0; }
-    to   { transform: translateY(0);    opacity: 1; }
-  }
-  .mh { padding: 18px 18px 12px; }
-  .mb { padding: 0 18px 8px; }
-  .mf { padding: 12px 18px calc(14px + env(safe-area-inset-bottom, 0px)); }
-
-  /* Buttons */
-  .btn { min-height: 40px; }
-  .btn-lg { min-height: 48px; font-size: 15px; }
-
-  /* Inputs — 16px prevents iOS zoom */
-  .fi { min-height: 44px; font-size: 16px !important; }
-  .fi-select { min-height: 44px; font-size: 16px !important; }
-  .fi-ta { font-size: 16px !important; min-height: 80px; }
-
-  /* Stats */
-  .stats { grid-template-columns: 1fr 1fr !important; gap: 8px !important; }
-  .stat { padding: 14px; }
-  .stat-val { font-size: 24px; }
-
-  /* Page header */
-  .ph { flex-direction: column; align-items: flex-start; gap: 10px; }
-  .ph h1 { font-size: 19px; }
-  .ph > div:last-child { width: 100%; display: flex; gap: 8px; flex-wrap: wrap; }
-  .ph button { min-height: 44px; }
-  .ph > div:last-child > button,
-  .ph > div:last-child > .btn { flex: 1; justify-content: center; }
-
-  /* Kanban: horizontal snap-scroll */
+  /* ── Kanban horizontal scroll ──────────────────────────────────── */
   .kanban {
     display: flex !important;
     flex-direction: row !important;
@@ -382,361 +142,388 @@ html, body {
   }
   .kanban::-webkit-scrollbar { display: none; }
   .kanban::after { content: ''; display: block; min-width: 14px; flex-shrink: 0; }
-  .kcol {
-    min-width: 280px;
-    max-width: 88vw;
-    flex-shrink: 0;
-    scroll-snap-align: start;
+  .kcol { min-width: 280px; max-width: 88vw; flex-shrink: 0; scroll-snap-align: start; }
+
+  /* ── Mobile side drawer ────────────────────────────────────────── */
+  #mob-side-drawer {
+    position: fixed;
+    top: 0; right: -110%;
+    width: min(320px, 92vw);
+    height: 100dvh;
+    background: var(--sur);
+    border-left: 1px solid var(--bor);
+    z-index: 300;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    transition: right 0.3s cubic-bezier(0.4,0,0.2,1);
+    padding: 20px 16px calc(20px + env(safe-area-inset-bottom,0px));
+  }
+  #mob-side-drawer.open { right: 0; box-shadow: -4px 0 32px rgba(0,0,0,0.18); }
+  #mob-side-overlay {
+    display: none;
+    position: fixed; inset: 0;
+    background: rgba(15,14,26,0.45);
+    z-index: 299;
+    backdrop-filter: blur(2px);
+  }
+  #mob-side-overlay.on { display: block; }
+
+  .mob-drawer-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 18px; padding-bottom: 14px; border-bottom: 1px solid var(--bor);
+  }
+  .mob-drawer-title { font-size: 15px; font-weight: 700; color: var(--tx); }
+  .mob-drawer-close {
+    width: 30px; height: 30px; border-radius: 8px;
+    background: var(--bg3); display: flex; align-items: center; justify-content: center;
+    color: var(--tx2); cursor: pointer; font-size: 16px; transition: all 0.15s;
+  }
+  .mob-team-btn {
+    display: inline-flex !important; align-items: center; gap: 6px;
+    padding: 6px 12px; border-radius: var(--r);
+    background: var(--bg2); border: 1px solid var(--bor);
+    font-size: 12.5px; font-weight: 600; color: var(--tx2); cursor: pointer;
   }
 
-  /* Kanban sort bar */
-  .task-sort-bar {
-    overflow-x: auto;
-    scrollbar-width: none;
-    flex-wrap: nowrap;
+  /* ── Bottom nav ────────────────────────────────────────────────── */
+  #mob-nav {
+    display: block !important;
+    position: fixed; bottom: 0; left: 0; right: 0;
+    background: var(--glass);
+    -webkit-backdrop-filter: blur(20px);
+    backdrop-filter: blur(20px);
+    border-top: 1px solid var(--bor);
+    padding: 6px 0 max(8px, env(safe-area-inset-bottom, 8px));
+    z-index: 100;
+    box-shadow: 0 -1px 16px rgba(0,0,0,0.07);
+    transition: transform 0.3s cubic-bezier(0.4,0,0.2,1), opacity 0.3s cubic-bezier(0.4,0,0.2,1);
+    will-change: transform;
+  }
+  #mob-nav.nav-hidden  { transform: translateY(100%); opacity: 0; pointer-events: none; }
+  #mob-nav.nav-visible { transform: translateY(0);    opacity: 1; pointer-events: auto; }
+  .pg, .pg-full { transition: padding-bottom 0.28s ease; }
+
+  /* ── Settings nav ──────────────────────────────────────────────── */
+  .setlayout { grid-template-columns: 1fr !important; gap: 12px; }
+  .setnav {
+    flex-direction: row !important; flex-wrap: wrap;
+    position: sticky !important; top: 0; z-index: 10;
+    gap: 4px; background: var(--bg2); padding: 8px;
+    border-radius: var(--rl); border: 1px solid var(--bor);
+  }
+  .setni {
+    flex: 1; min-width: 80px; justify-content: center;
+    font-size: 12px; padding: 8px 6px; min-height: 44px; border-radius: var(--r);
+  }
+
+  /* ── Page padding ──────────────────────────────────────────────── */
+  .pg, .pg-full { padding: 16px 14px calc(100px + env(safe-area-inset-bottom, 0px)); }
+
+  /* ── Form rows ─────────────────────────────────────────────────── */
+  .frow { flex-direction: column !important; gap: 0 !important; }
+  .frow > .fg { flex: none !important; }
+
+  /* ── Sidebar footer ────────────────────────────────────────────── */
+  .uchip { padding: 10px; }
+  .uname { font-size: 14px; }
+  .udept { font-size: 12px; }
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   PHONE  ≤ 600px
+══════════════════════════════════════════════════════════════════ */
+@media (max-width: 600px) {
+  :root { --hh: 52px; }
+
+  /* ── Header ────────────────────────────────────────────────────── */
+  .mob-header { padding: 0 12px; height: var(--hh); }
+  .mob-btn { width: 40px; height: 40px; border-radius: 10px; }
+
+  /* ── Scroll container ──────────────────────────────────────────── */
+  #app { height: 100dvh; overflow: hidden; }
+  #main {
+    height: calc(100dvh - var(--hh) - 66px) !important;
+    max-height: calc(100dvh - var(--hh) - 66px) !important;
+    min-height: auto !important;
+    overflow-y: auto !important; overflow-x: hidden !important;
     -webkit-overflow-scrolling: touch;
-    padding-bottom: 4px;
+    overscroll-behavior-y: contain;
+  }
+
+  /* ── Page padding ──────────────────────────────────────────────── */
+  .pg, .pg-full { padding: 14px 12px calc(106px + env(safe-area-inset-bottom, 0px)); }
+
+  /* ── Auth ──────────────────────────────────────────────────────── */
+  .authpg { padding: 16px 10px; align-items: flex-start; padding-top: 28px; }
+  .authcard { padding: 24px 16px 28px; border-radius: 20px; max-width: 100%; width: 100% !important; }
+
+  /* ── Modals: bottom sheet ──────────────────────────────────────── */
+  .ov { align-items: flex-end !important; padding: 0 !important; }
+  .modal {
+    border-radius: 22px 22px 0 0 !important;
+    max-width: 100% !important; width: 100% !important;
+    max-height: 92dvh;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    animation: slideUpSheet 0.26s cubic-bezier(0.34,1.2,0.64,1) !important;
+  }
+  @keyframes slideUpSheet {
+    from { transform: translateY(60px); opacity: 0; }
+    to   { transform: translateY(0);    opacity: 1; }
+  }
+  .mh { padding: 18px 18px 12px; }
+  .mb { padding: 0 18px 8px; }
+  .mf { padding: 12px 18px calc(14px + env(safe-area-inset-bottom, 0px)); }
+
+  /* ── Buttons ───────────────────────────────────────────────────── */
+  .btn    { min-height: 40px; }
+  .btn-lg { min-height: 48px; font-size: 15px; }
+
+  /* ── Inputs ────────────────────────────────────────────────────── */
+  .fi        { min-height: 44px; font-size: 16px !important; }
+  .fi-select { min-height: 44px; font-size: 16px !important; }
+  .fi-ta     { font-size: 16px !important; min-height: 80px; }
+
+  /* ── Stats ─────────────────────────────────────────────────────── */
+  .stats    { grid-template-columns: 1fr 1fr !important; gap: 8px !important; }
+  .stat     { padding: 14px; }
+  .stat-val { font-size: 24px; }
+
+  /* ── Page header ───────────────────────────────────────────────── */
+  .ph { flex-direction: column; align-items: flex-start; gap: 10px; }
+  .ph h1 { font-size: 19px; }
+  .ph > div:last-child { width: 100%; display: flex; gap: 8px; flex-wrap: wrap; }
+  .ph button { min-height: 44px; }
+  .ph > div:last-child > button,
+  .ph > div:last-child > .btn { flex: 1; justify-content: center; }
+
+  /* ── Task sort bar — chips scroll, action buttons fixed right ───── */
+  .task-sort-bar {
+    display: flex;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    align-items: center;
+    gap: 6px;
+    padding-bottom: 6px;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
   }
   .task-sort-bar::-webkit-scrollbar { display: none; }
   .sort-chip { flex-shrink: 0; white-space: nowrap; }
+  .task-sort-bar .export-btn,
+  .task-sort-bar .btn-primary { flex-shrink: 0; }
+
+  /* ── Kanban ────────────────────────────────────────────────────── */
+  .kanban {
+    display: flex !important; flex-direction: row !important;
+    overflow-x: auto; gap: 10px; padding-bottom: 8px;
+    scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch;
+    scrollbar-width: none; margin: 0 -12px;
+    padding-left: 12px; padding-right: 12px;
+  }
+  .kanban::-webkit-scrollbar { display: none; }
+  .kcol { min-width: 82vw; max-width: 86vw; flex-shrink: 0; scroll-snap-align: start; }
   .add-tk { min-height: 44px; font-size: 13px; }
 
-  /* Workspace tabs */
+  /* ── Workspace tabs ────────────────────────────────────────────── */
   .wstabs {
-    overflow-x: auto;
-    scrollbar-width: none;
-    -webkit-overflow-scrolling: touch;
-    padding: 0 8px;
+    overflow-x: auto; scrollbar-width: none;
+    -webkit-overflow-scrolling: touch; padding: 0 8px;
   }
   .wstabs::-webkit-scrollbar { display: none; }
-  .tab {
-    flex-shrink: 0;
-    white-space: nowrap;
-    padding: 10px 12px;
-    font-size: 12.5px;
-    min-height: 44px;
-  }
+  .tab { flex-shrink: 0; white-space: nowrap; padding: 10px 12px; font-size: 12.5px; min-height: 44px; }
 
-  /* Workspace header */
+  /* ── Workspace header ──────────────────────────────────────────── */
   .wsh { flex-wrap: wrap; gap: 8px; padding: 10px 12px; }
   .wsh h2 { font-size: 14px; }
   .wsmain { padding: 12px; }
 
-  /* Filter chips: horizontal scroll */
+  /* ── Filter chips ──────────────────────────────────────────────── */
   .fchips-row {
-    overflow-x: auto;
-    scrollbar-width: none;
-    flex-wrap: nowrap;
-    -webkit-overflow-scrolling: touch;
-    padding-bottom: 4px;
-    margin-bottom: 12px;
+    overflow-x: auto; scrollbar-width: none;
+    flex-wrap: nowrap; -webkit-overflow-scrolling: touch;
+    padding-bottom: 4px; margin-bottom: 12px;
   }
   .fchips-row::-webkit-scrollbar { display: none; }
   .fcp { flex-shrink: 0; white-space: nowrap; }
-  .fchips-row > .fcp[id="open-fp"] { margin-left: 0 !important; }
 
-  /* Search bar */
+  /* ── Search bar ────────────────────────────────────────────────── */
   .sbar { flex-direction: column; }
   .sbar .swrap { min-width: 0; width: 100%; }
   .sbar .btn-primary { width: 100%; min-height: 44px; }
 
-  /* Upload zone */
+  /* ── Upload zone ───────────────────────────────────────────────── */
   .upzone { padding: 20px 14px; }
 
-  /* Settings */
+  /* ── Settings ──────────────────────────────────────────────────── */
   .setsec { padding: 16px; }
   .setsec-t { font-size: 15px; }
   .setni { font-size: 11px; padding: 7px 4px; min-width: 60px; }
   .vault-actions { flex-direction: column; }
   .vault-actions .btn { width: 100%; justify-content: center; min-height: 44px; }
 
-  /* Notifications */
+  /* ── Notifications ─────────────────────────────────────────────── */
   .nitem { padding: 12px 14px; }
-  .ntx { font-size: 13px; }
+  .ntx   { font-size: 13px; }
 
-  /* Project cards */
+  /* ── Project cards ─────────────────────────────────────────────── */
   .pcrd { padding: 14px; }
   .prog { height: 5px; margin-bottom: 8px; }
 
-  /* Due-soon rows */
-  [data-taskrow] { padding: 11px 12px !important; gap: 10px !important; }
-  [data-bandheader] { padding: 6px 12px 3px !important; }
+  /* ── Due-soon rows ─────────────────────────────────────────────── */
+  [data-taskrow]   { padding: 11px 12px !important; gap: 10px !important; }
+  [data-bandheader]{ padding: 6px 12px 3px !important; }
 
-  /* Chat bubbles */
+  /* ── Chat bubbles ──────────────────────────────────────────────── */
   [style*="max-width:68%"] { max-width: 84% !important; }
 
-  /* Chat height in workspace — let it grow naturally on mobile */
+  /* ── Chat container height ─────────────────────────────────────── */
   #ws-main [style*="height:calc(100vh"] {
     height: auto !important;
     min-height: 380px !important;
     max-height: calc(100dvh - var(--hh) - 52px - 48px - env(safe-area-inset-bottom, 0px)) !important;
   }
 
-  /* Overflow prevention */
+  /* ── Reply banner ──────────────────────────────────────────────── */
+  #reply-banner {
+    padding: 6px 12px !important;
+  }
+  #reply-banner-text { font-size: 11px !important; }
+
+  /* ── File preview modal ────────────────────────────────────────── */
+  #file-preview-modal {
+    padding: 10px !important;
+  }
+  #file-preview-modal > div {
+    max-width: 100% !important;
+    max-height: 94dvh !important;
+    border-radius: 16px !important;
+    margin: 0 !important;
+  }
+  #file-preview-modal img,
+  #file-preview-modal iframe {
+    max-height: 60dvh !important;
+  }
+
+  /* ── Export button: always visible on mobile ───────────────────── */
+  .export-btn {
+    font-size: 12px !important;
+    padding: 5px 10px !important;
+    min-height: 34px !important;
+  }
+
+  /* ── Global search modal ───────────────────────────────────────── */
+  #global-search-modal { padding: 12px 0 0 !important; align-items: flex-end !important; }
+  #global-search-modal > div {
+    border-radius: 22px 22px 0 0 !important;
+    max-width: 100% !important;
+    width: 100% !important;
+    max-height: 88dvh;
+  }
+
+  /* ── Overflow prevention ───────────────────────────────────────── */
   #main, .pg, .pg-full, .wsbody, .wsmain { max-width: 100vw !important; overflow-x: hidden !important; }
 
-  /* Max-width containers */
-  [style*="max-width:700px"],
-  [style*="max-width:680px"],
-  [style*="max-width:640px"],
-  [style*="max-width:720px"],
+  /* ── Max-width containers → full width ────────────────────────── */
+  [style*="max-width:700px"], [style*="max-width:680px"],
+  [style*="max-width:640px"], [style*="max-width:720px"],
   [style*="max-width:560px"] { max-width: 100% !important; }
 
-  /* 4-col grids → 2 col */
+  /* ── 4-col grids → 2 col ──────────────────────────────────────── */
   [style*="grid-template-columns:repeat(4,1fr)"],
   [style*="grid-template-columns: repeat(4,1fr)"],
   [style*="grid-template-columns:repeat(4, 1fr)"] {
-    grid-template-columns: 1fr 1fr !important;
-    gap: 8px !important;
+    grid-template-columns: 1fr 1fr !important; gap: 8px !important;
   }
 
-  /* Invite friends share buttons */
+  /* ── Invite share buttons ──────────────────────────────────────── */
   [style*="grid-template-columns:repeat(auto-fill,minmax(130px"] {
     grid-template-columns: repeat(3, 1fr) !important;
   }
 
-  /* Bottom nav */
+  /* ── Bottom nav ────────────────────────────────────────────────── */
   #mob-nav { padding-bottom: max(8px, env(safe-area-inset-bottom, 8px)); }
   .mob-nav-item {
-    padding: 8px 6px 4px;
-    min-width: 52px;
-    min-height: 48px;
-    font-size: 9.5px;
-    gap: 2px;
+    padding: 8px 6px 4px; min-width: 52px; min-height: 48px;
+    font-size: 9.5px; gap: 2px;
   }
 
-  /* Dropdown menus: always right-aligned on phone */
+  /* ── Dropdown menus ────────────────────────────────────────────── */
   [id^="menu-"] { right: 0 !important; left: auto !important; min-width: 180px; }
-  #ws-menu { right: 0 !important; left: auto !important; min-width: 180px; }
+  #ws-menu      { right: 0 !important; left: auto !important; min-width: 180px; }
 
-  /* Onboarding modal */
+  /* ── Onboarding modal ──────────────────────────────────────────── */
   #onboarding-overlay .modal { max-width: 100% !important; }
 
-  /* Demo-gate modal */
+  /* ── Demo gate ─────────────────────────────────────────────────── */
   #demo-gate [style*="max-width:340px"] {
     max-width: calc(100vw - 32px) !important;
     padding: 24px 18px !important;
   }
 
-  /* Tour card: above bottom nav */
+  /* ── Tour card ─────────────────────────────────────────────────── */
   #tour-card {
     bottom: calc(72px + env(safe-area-inset-bottom, 0px)) !important;
-    top: auto !important;
-    left: 12px !important;
-    right: 12px !important;
-    width: auto !important;
-    max-width: 100%;
+    top: auto !important; left: 12px !important; right: 12px !important;
+    width: auto !important; max-width: 100%;
   }
   #tour-spotlight { display: none !important; }
 
-  /* wsside is replaced by drawer; its av-stack is irrelevant */
+  /* wsside replaced by drawer */
   .wsside .av-stack { display: none; }
-}
-#app {
-  height: 100dvh;
-  overflow: hidden;
 }
 
 /* ══════════════════════════════════════════════════════════════════
-   SMALL PHONES (≤ 400px)
+   SMALL PHONES  ≤ 400px
 ══════════════════════════════════════════════════════════════════ */
 @media (max-width: 400px) {
   .mob-nav-item { min-width: 44px; padding: 8px 4px 4px; font-size: 9px; }
-  .ph h1 { font-size: 17px; }
-  .authcard { padding: 18px 12px 22px; }
-  .tab { padding: 9px 10px; font-size: 12px; }
+  .ph h1        { font-size: 17px; }
+  .authcard     { padding: 18px 12px 22px; }
+  .tab          { padding: 9px 10px; font-size: 12px; }
   .pg, .pg-full { padding: 12px 10px calc(106px + env(safe-area-inset-bottom, 0px)); }
-  .stats { grid-template-columns: 1fr 1fr !important; gap: 6px !important; }
-  .stat-val { font-size: 22px; }
-  .setni { font-size: 10px; min-width: 52px; }
-  .kcol { min-width: 256px; }
+  .stats        { grid-template-columns: 1fr 1fr !important; gap: 6px !important; }
+  .stat-val     { font-size: 22px; }
+  .setni        { font-size: 10px; min-width: 52px; }
+  .kcol         { min-width: 90vw; max-width: 92vw; }
 }
 
 /* ══════════════════════════════════════════════════════════════════
    TOUCH DEVICE IMPROVEMENTS
 ══════════════════════════════════════════════════════════════════ */
 @media (hover: none) and (pointer: coarse) {
-  .btn:hover { transform: none !important; box-shadow: none !important; }
-  .ni:hover { background: transparent !important; }
+  .btn:hover  { transform: none !important; box-shadow: none !important; }
   .btn:active { transform: scale(0.97) !important; opacity: 0.9; }
-  .ni:active { background: var(--bg3) !important; }
+  .ni:hover   { background: transparent !important; }
+  .ni:active  { background: var(--bg3) !important; }
   .mob-nav-item:active { opacity: 0.7; transform: scale(0.94); }
-  .pcrd:active { transform: scale(0.99); box-shadow: var(--sh); }
-  .tkcard:active { transform: scale(0.99); }
-  .sort-chip { min-height: 36px; display: inline-flex; align-items: center; }
-  .fcp { min-height: 36px; display: inline-flex; align-items: center; }
-  .authlink a:hover { text-decoration: none; }
+  .pcrd:active  { transform: scale(0.99); box-shadow: var(--sh); }
+  .tkcard:active{ transform: scale(0.99); }
+  .sort-chip    { min-height: 36px; display: inline-flex; align-items: center; }
+  .fcp          { min-height: 36px; display: inline-flex; align-items: center; }
   * { -webkit-tap-highlight-color: rgba(91,82,200,0.1); }
+
+  /* Reply btn — always show on touch since hover never fires */
+  .reply-btn { opacity: 1 !important; }
 }
 
 /* ══════════════════════════════════════════════════════════════════
    MOBILE SIDE DRAWER — mirrors .wsside desktop styles
 ══════════════════════════════════════════════════════════════════ */
-#mob-side-drawer .ssec { margin-bottom: 20px; }
-#mob-side-drawer .sslbl {
-  font-size: 10px; font-weight: 700; color: var(--tx3);
-  letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 10px;
-}
-#mob-side-drawer .mrow {
-  display: flex; align-items: center; gap: 8px;
-  padding: 8px 0; border-bottom: 1px solid var(--bor); min-height: 44px;
-}
+#mob-side-drawer .ssec   { margin-bottom: 20px; }
+#mob-side-drawer .sslbl  { font-size: 10px; font-weight: 700; color: var(--tx3); letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 10px; }
+#mob-side-drawer .mrow   { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--bor); min-height: 44px; }
 #mob-side-drawer .mrow:last-child { border-bottom: none; }
-#mob-side-drawer .minfo { flex: 1; min-width: 0; }
-#mob-side-drawer .mname { font-size: 13px; font-weight: 500; }
-#mob-side-drawer .mrole { font-size: 11px; color: var(--tx3); }
-#mob-side-drawer .mdot { width: 8px; height: 8px; border-radius: 50%; background: var(--bor2); flex-shrink: 0; }
-#mob-side-drawer .mdot.on { background: var(--ok); box-shadow: 0 0 0 2px rgba(22,163,74,0.2); }
-#mob-side-drawer .frow {
-  display: flex; align-items: center; gap: 8px;
-  padding: 8px 0; border-bottom: 1px solid var(--bor); cursor: pointer; min-height: 44px;
-}
+#mob-side-drawer .minfo  { flex: 1; min-width: 0; }
+#mob-side-drawer .mname  { font-size: 13px; font-weight: 500; }
+#mob-side-drawer .mrole  { font-size: 11px; color: var(--tx3); }
+#mob-side-drawer .mdot   { width: 8px; height: 8px; border-radius: 50%; background: var(--bor2); flex-shrink: 0; }
+#mob-side-drawer .mdot.on{ background: var(--ok); box-shadow: 0 0 0 2px rgba(22,163,74,0.2); }
+#mob-side-drawer .frow   { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--bor); cursor: pointer; min-height: 44px; }
 #mob-side-drawer .frow:last-child { border-bottom: none; }
-#mob-side-drawer .fname { font-size: 12.5px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; }
-#mob-side-drawer .fmeta { font-size: 10px; color: var(--tx3); }
-#mob-side-drawer .fic { width: 32px; height: 32px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: 700; flex-shrink: 0; }
+#mob-side-drawer .fname  { font-size: 12.5px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; }
+#mob-side-drawer .fmeta  { font-size: 10px; color: var(--tx3); }
+#mob-side-drawer .fic    { width: 32px; height: 32px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: 700; flex-shrink: 0; }
 #mob-side-drawer .keybox { display: flex; align-items: center; gap: 8px; background: var(--bg2); border: 1px solid var(--bor); border-radius: var(--r); padding: 10px 12px; }
-#mob-side-drawer .keycode { font-family: var(--mono); font-size: 15px; font-weight: 700; color: var(--brand); letter-spacing: 0.08em; flex: 1; }
-#mob-side-drawer .keymeta { font-size: 11px; color: var(--tx3); margin-top: 4px; }
-#mob-side-drawer .btn { min-height: 44px; }
-
-/* ══════════════════════════════════════════════════════════════════
-   POLISH — modals, search, preview, export, activity
-══════════════════════════════════════════════════════════════════ */
-
-/* Global search modal — full-width on phone */
-@media (max-width: 600px) {
-  #global-search-modal {
-    padding: 12px 8px 8px !important;
-    align-items: flex-start !important;
-  }
-  #global-search-modal > div {
-    border-radius: 16px !important;
-    max-width: 100% !important;
-  }
-  #gs-results {
-    max-height: 55dvh !important;
-  }
-}
-
-/* File preview modal — full screen on phone */
-@media (max-width: 600px) {
-  #file-preview-modal {
-    padding: 12px 8px !important;
-  }
-  #file-preview-modal img {
-    border-radius: 8px !important;
-    max-height: 75dvh !important;
-  }
-  #file-preview-modal iframe {
-    height: 72dvh !important;
-    border-radius: 8px !important;
-  }
-}
-
-/* Calendar — compact on small phones */
-@media (max-width: 600px) {
-  .cal-grid { grid-template-columns: repeat(7,1fr); }
-  .cal-cell { min-height: 52px !important; padding: 3px 2px !important; }
-  .cal-day-num { font-size: 10px !important; }
-  .cal-pill { font-size: 8px !important; padding: 1px 3px !important; }
-  /* Stack calendar and upcoming vertically */
-  #ws-main > div[style*="display:flex;gap:16px"] {
-    flex-direction: column !important;
-  }
-  #ws-main > div[style*="display:flex;gap:16px"] > div:last-child {
-    width: 100% !important;
-  }
-}
-
-/* Export button — don't overflow tabs on small screens */
-@media (max-width: 600px) {
-  .wsh .btn-ghost { display: none !important; }
-  /* Show export only in overflow menu — handled via JS */
-}
-
-/* Activity feed — tighter on mobile */
-@media (max-width: 600px) {
-  #main [style*="Recent activity"] h2 { font-size: 17px !important; }
-}
-
-/* Mention dropdown — stays within viewport */
-@media (max-width: 600px) {
-  #mention-dropdown {
-    bottom: 58px !important;
-    left: 8px !important;
-    right: 8px !important;
-    border-radius: 12px !important;
-  }
-}
-
-/* Cal-day modal — bottom sheet on phone */
-@media (max-width: 600px) {
-  #cal-day-modal {
-    align-items: flex-end !important;
-    padding: 0 !important;
-  }
-  #cal-day-modal > div {
-    border-radius: 20px 20px 0 0 !important;
-    width: 100% !important;
-    max-width: 100% !important;
-    padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px)) !important;
-  }
-}
-
-/* Task detail modal — scrollable on phone with keyboard open */
-@media (max-width: 600px) {
-  #m-task-detail .modal {
-    max-height: 88dvh !important;
-    overflow-y: auto !important;
-  }
-  #m-task-detail .mb {
-    overflow-y: auto;
-  }
-}
-
-/* Smooth transitions on modals */
-.ov { transition: opacity 0.18s; }
-.ov:not(.on) { pointer-events: none; }
-
-/* PWA standalone — remove iOS address bar gap */
-@media (display-mode: standalone) {
-  .mob-header {
-    padding-top: env(safe-area-inset-top, 0px);
-    height: calc(var(--hh) + env(safe-area-inset-top, 0px)) !important;
-  }
-  #mob-nav {
-    padding-bottom: max(12px, env(safe-area-inset-bottom, 12px));
-  }
-}
-
-/* Skeleton loaders — smoother animation */
-.skel {
-  animation: skelPulse 1.4s ease-in-out infinite !important;
-}
-@keyframes skelPulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.45; }
-}
-
-/* Smooth page transitions */
-.pg, .pg-full {
-  animation: pgFadeIn 0.18s ease-out;
-}
-@keyframes pgFadeIn {
-  from { opacity: 0; transform: translateY(6px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-
-/* Toast polish */
-@media (max-width: 600px) {
-  .toast {
-    border-radius: 12px !important;
-    padding: 12px 16px !important;
-    font-size: 13px !important;
-    box-shadow: 0 4px 20px rgba(0,0,0,0.18) !important;
-  }
-}
-
-/* Prevent content flash before styles load */
-#app[style*="display:none"] { visibility: hidden; }
+#mob-side-drawer .keycode{ font-family: var(--mono); font-size: 15px; font-weight: 700; color: var(--brand); letter-spacing: 0.08em; flex: 1; }
+#mob-side-drawer .keymeta{ font-size: 11px; color: var(--tx3); margin-top: 4px; }
+#mob-side-drawer .btn    { min-height: 44px; }
