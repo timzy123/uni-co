@@ -1042,6 +1042,38 @@ const M = {
   },
 };
 
+/* ── Keyboard viewport shift fix ──────────────────────────────────── */
+(function() {
+  if (typeof window === 'undefined' || !window.visualViewport) return;
+  if (window.innerWidth > 860) return;
+  const vv = window.visualViewport;
+  let _lastHeight = vv.height;
+  let _scrollEl = null;
+  let _savedScroll = 0;
+  function onViewportResize() {
+    const app = document.getElementById('app');
+    if (!app) return;
+    const keyboardOpen = vv.height < _lastHeight - 50;
+    if (keyboardOpen) {
+      _scrollEl = document.getElementById('main') || document.scrollingElement;
+      _savedScroll = _scrollEl ? _scrollEl.scrollTop : 0;
+      app.style.height = vv.height + 'px';
+      app.style.position = 'fixed';
+      app.style.top = '0'; app.style.left = '0'; app.style.right = '0';
+      setTimeout(() => {
+        const focused = document.activeElement;
+        if (focused && focused !== document.body)
+          focused.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      }, 100);
+    } else {
+      app.style.height = app.style.position = app.style.top = app.style.left = app.style.right = '';
+      if (_scrollEl) { _scrollEl.scrollTop = _savedScroll; _scrollEl = null; }
+      _lastHeight = vv.height;
+    }
+  }
+  vv.addEventListener('resize', onViewportResize);
+})();
+
 document.addEventListener('click', e => {
   if (e.target.classList.contains('ov')) e.target.classList.remove('on');
 });
@@ -1697,17 +1729,31 @@ function exportTasksPDF() {
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
     <title>${p.title} — Task Board</title>
     <style>
-      body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin: 40px; color: #1a1a2e; }
-      h1 { font-size: 22px; color: #534AB7; margin-bottom: 4px; }
-      .meta { font-size: 12px; color: #777; margin-bottom: 8px; }
-      .progress { height: 6px; background: #eee; border-radius: 3px; margin-bottom: 28px; }
-      .progress-fill { height: 100%; background: #534AB7; border-radius: 3px; width: ${pct}%; }
+      @page { margin: 28px 36px; }
+      * { box-sizing: border-box; }
+      body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin: 0; padding: 32px 40px; color: #1a1a2e; font-size: 13px; }
+      h1 { font-size: 22px; color: #534AB7; margin: 0 0 4px; font-weight: 700; }
+      .meta { font-size: 12px; color: #777; margin-bottom: 10px; }
+      .progress-wrap { background: #eee; border-radius: 4px; height: 7px; margin-bottom: 28px; overflow: hidden; }
+      .progress-fill { height: 100%; background: linear-gradient(90deg,#534AB7,#7B74D8); border-radius: 4px; width: ${pct}%; }
+      .col-head { font-size: 11px; font-weight: 700; color: #534AB7; text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 8px; padding-bottom: 6px; border-bottom: 2px solid #534AB7; }
+      table { width: 100%; border-collapse: collapse; margin-bottom: 28px; page-break-inside: avoid; }
+      th { padding: 7px 10px; text-align: left; background: #f5f4ff; font-size: 11px; font-weight: 600; color: #534AB7; border-bottom: 1px solid #ddd; }
+      td { padding: 8px 10px; border-bottom: 1px solid #f0f0f0; vertical-align: top; }
+      tr:last-child td { border-bottom: none; }
+      .pri-high { color: #e53e3e; font-weight: 700; font-size: 11px; }
+      .pri-medium { color: #805ad5; font-weight: 700; font-size: 11px; }
+      .pri-low { color: #718096; font-weight: 700; font-size: 11px; }
+      .empty { color: #aaa; font-style: italic; padding: 12px 10px; }
+      .footer { margin-top: 32px; padding-top: 14px; border-top: 1px solid #eee; font-size: 11px; color: #aaa; display: flex; justify-content: space-between; }
+      @media print { body { padding: 0; } .footer { position: fixed; bottom: 0; left: 0; right: 0; background: #fff; } }
     </style>
   </head><body>
-    <h1>${p.title}</h1>
-    <div class="meta">Exported ${date} · ${tasks.length} tasks · ${pct}% complete</div>
-    <div class="progress"><div class="progress-fill"></div></div>
+    <h1>${esc(p.title)}</h1>
+    <div class="meta">Exported ${date} &nbsp;·&nbsp; ${tasks.length} task${tasks.length !== 1 ? 's' : ''} &nbsp;·&nbsp; ${pct}% complete</div>
+    <div class="progress-wrap"><div class="progress-fill"></div></div>
     ${colHTML}
+    <div class="footer"><span>uni-co — University Collaboration Platform</span><span>${date}</span></div>
   </body></html>`;
 
   const win = window.open('', '_blank');
@@ -1715,7 +1761,7 @@ function exportTasksPDF() {
   win.document.write(html);
   win.document.close();
   win.focus();
-  setTimeout(() => { win.print(); }, 400);
+  setTimeout(() => { win.print(); }, 500);
 }
 
 /* ── Global Search ─────────────────────────────────────────────────── */
@@ -1727,23 +1773,39 @@ async function openGlobalSearch() {
   modal.id = 'global-search-modal';
   modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:400;display:flex;align-items:flex-start;justify-content:center;padding:60px 16px 16px;backdrop-filter:blur(4px)';
   modal.innerHTML = `
-    <div style="background:var(--sur);border:1px solid var(--bor);border-radius:var(--rl);width:100%;max-width:560px;box-shadow:0 12px 48px rgba(0,0,0,0.2);overflow:hidden">
+    <div style="background:var(--sur);border:1px solid var(--bor);border-radius:var(--rl);width:100%;max-width:560px;box-shadow:0 16px 56px rgba(0,0,0,0.25);overflow:hidden">
       <div style="display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--bor)">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--tx3)" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--tx3)" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
         <input id="gs-input" placeholder="Search tasks, files, messages…"
-          style="flex:1;background:none;border:none;outline:none;font-size:15px;color:var(--tx);font-family:inherit"
-          oninput="runGlobalSearch(this.value)" autocomplete="off">
-        <button onclick="document.getElementById('global-search-modal').remove()"
-          style="background:none;border:none;color:var(--tx3);cursor:pointer;font-size:18px;padding:0;line-height:1">✕</button>
+          style="flex:1;background:none;border:none;outline:none;font-size:15px;color:var(--tx);font-family:inherit;min-width:0"
+          oninput="debouncedSearch(this.value)" autocomplete="off" spellcheck="false">
+        <kbd style="background:var(--bg2);border:1px solid var(--bor);border-radius:5px;padding:2px 6px;font-size:11px;color:var(--tx3);font-family:inherit;flex-shrink:0">Esc</kbd>
       </div>
-      <div id="gs-results" style="max-height:60vh;overflow-y:auto;padding:8px 0">
-        <div style="padding:24px;text-align:center;color:var(--tx3);font-size:13px">Start typing to search…</div>
+      <div id="gs-results" style="max-height:62dvh;overflow-y:auto;padding:6px 0">
+        <div style="padding:28px;text-align:center;color:var(--tx3);font-size:13px">Start typing to search…</div>
       </div>
     </div>`;
 
   modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
   document.body.appendChild(modal);
   setTimeout(() => document.getElementById('gs-input')?.focus(), 50);
+
+  // Close on Escape
+  const onKey = e => { if (e.key === 'Escape') { modal.remove(); document.removeEventListener('keydown', onKey); } };
+  document.addEventListener('keydown', onKey);
+}
+
+// Debounced search — waits 250ms after last keystroke
+let _gsDebounceTimer = null;
+function debouncedSearch(val) {
+  clearTimeout(_gsDebounceTimer);
+  const box = document.getElementById('gs-results');
+  if (val.trim().length < 2) {
+    if (box) box.innerHTML = '<div style="padding:28px;text-align:center;color:var(--tx3);font-size:13px">Start typing to search…</div>';
+    return;
+  }
+  if (box) box.innerHTML = '<div style="padding:16px;text-align:center;color:var(--tx3);font-size:13px;opacity:0.6">Searching…</div>';
+  _gsDebounceTimer = setTimeout(() => runGlobalSearch(val), 250);
 }
 
 async function runGlobalSearch(query) {
@@ -1784,13 +1846,14 @@ async function runGlobalSearch(query) {
     }
 
     box.innerHTML = results.slice(0, 20).map(r => `
-      <div onclick="(${r.action.toString()})()" style="display:flex;align-items:center;gap:10px;padding:10px 16px;cursor:pointer;transition:background 0.1s"
+      <div onclick="(${r.action.toString()})()" style="display:flex;align-items:center;gap:10px;padding:11px 16px;cursor:pointer;transition:background 0.12s;border-radius:0"
         onmouseover="this.style.background='var(--bg2)'" onmouseout="this.style.background=''">
-        <div style="width:28px;height:28px;border-radius:7px;background:var(--bg2);display:flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0">${r.icon}</div>
+        <div style="width:30px;height:30px;border-radius:8px;background:var(--bg3);display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0">${r.icon}</div>
         <div style="flex:1;min-width:0">
-          <div style="font-size:13px;color:var(--tx);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(r.title)}</div>
-          <div style="font-size:11px;color:var(--tx3)">${esc(r.sub)} · ${r.type}</div>
+          <div style="font-size:13px;color:var(--tx);font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.title)}</div>
+          <div style="font-size:11px;color:var(--tx3);margin-top:1px">${esc(r.sub)} &middot; <span style="text-transform:capitalize">${r.type}</span></div>
         </div>
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--tx3)" stroke-width="2" style="flex-shrink:0;opacity:0.4"><polyline points="9 18 15 12 9 6"/></svg>
       </div>`).join('');
   } catch(e) {
     box.innerHTML = '<div style="padding:16px;text-align:center;color:var(--err);font-size:13px">Search failed</div>';
@@ -2583,6 +2646,7 @@ async function submitJoinKey() {
     const pid = await StorageEngine.joinByKey(code, S.user.id);
     M.close('join-key');
     toast('Joined project!', 'success');
+    PushEngine.sendPushToProjectMembers(pid, S.user.id, '👥 New member joined — uni-co', `${S.user?.fullName || 'Someone'} just joined your project`);
     go('ws', { id: pid });
   } catch (e) { err.textContent = e.message; err.style.display = 'block'; }
 }
@@ -2615,6 +2679,10 @@ async function submitTask() {
   });
   M.close('new-task');
   toast('Task added', 'success');
+  if (assigneeId && assigneeId !== S.user?.id) {
+    const p = window._wsProject;
+    PushEngine.sendPushToUser(assigneeId, `📋 New task assigned — ${p?.title || 'uni-co'}`, `${S.user?.fullName || 'Someone'} assigned you: ${title}`, _editProjectId);
+  }
   if (S.project) reloadWs();
 }
 
@@ -3178,7 +3246,8 @@ function renderCalendar(container, p) {
       .cal-day-num { font-size:12px; font-weight:500; color:var(--tx3); margin-bottom:3px; }
       .cal-today-num { color:var(--brand); font-weight:700; }
       .cal-pills { display:flex; flex-direction:column; gap:2px; }
-      .cal-pill  { font-size:10px; color:#fff; padding:1px 5px; border-radius:3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; cursor:pointer; }
+      .cal-pill  { font-size:10px; color:#fff; padding:2px 6px; border-radius:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; cursor:pointer; line-height:1.4; transition:opacity 0.15s; }
+      .cal-pill:hover { opacity:0.8; }
     </style>`;
 }
 
@@ -3384,50 +3453,49 @@ async function doUpload(file, pid) {
 
 /* ── File Preview Modal ─────────────────────────────────────────────── */
 async function previewFile(fileId, filename, fileUrl, mimeType) {
-  // Files are stored as base64 dataUrl in the DB — load directly from there
-  let url = null;
-  let resolvedMimeType = mimeType;
-  try {
-    const fileRecord = await StorageEngine.get('files', fileId);
-    if (fileRecord?.dataUrl) {
-      url = fileRecord.dataUrl;
-      // If mimeType was not passed, try to infer from the dataUrl header
-      if (!resolvedMimeType && url.startsWith('data:')) {
-        resolvedMimeType = url.split(';')[0].replace('data:', '');
-      }
-    }
-  } catch(e) {}
-  // Fallback to a plain URL if one was explicitly provided and DB fetch failed
-  if (!url && fileUrl && fileUrl !== 'undefined') url = fileUrl;
-  if (!url) { toast('Could not load preview', 'error'); return; }
-
-  const isImage = /\.(png|jpg|jpeg|gif|webp|svg)$/i.test(filename) || (resolvedMimeType && resolvedMimeType.startsWith('image/'));
-  const isPDF   = /\.pdf$/i.test(filename) || resolvedMimeType === 'application/pdf';
-
   const existing = document.getElementById('file-preview-modal');
   if (existing) existing.remove();
-
   const modal = document.createElement('div');
   modal.id = 'file-preview-modal';
-  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:500;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:16px';
-
-  const content = isImage
-    ? `<img src="${url}" alt="${esc(filename)}" style="max-width:100%;max-height:80vh;border-radius:12px;object-fit:contain;box-shadow:0 8px 40px rgba(0,0,0,0.4)">`
-    : isPDF
-    ? `<iframe src="${url}" style="width:min(800px,95vw);height:80vh;border:none;border-radius:12px;background:#fff"></iframe>`
-    : `<div style="color:#fff;font-size:14px">Preview not available for this file type.</div>`;
-
-  modal.innerHTML = `
-    <div style="display:flex;align-items:center;justify-content:space-between;width:min(800px,95vw);margin-bottom:12px">
-      <div style="font-size:13px;font-weight:600;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">${esc(filename)}</div>
-      <button onclick="document.getElementById('file-preview-modal').remove()"
-        style="background:rgba(255,255,255,0.15);border:none;color:#fff;width:32px;height:32px;border-radius:8px;cursor:pointer;font-size:16px;flex-shrink:0;margin-left:12px">✕</button>
-    </div>
-    ${content}`;
-
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.82);z-index:500;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:16px;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)';
+  modal.innerHTML = `<div style="color:#fff;font-size:13px;opacity:0.6">Loading preview…</div>`;
   modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
   document.body.appendChild(modal);
+
+  let url = fileUrl;
+  if (!url || url === 'undefined' || url === '') {
+    try {
+      const sb = StorageEngine._sb();
+      const { data } = await sb.storage.from('project-files').createSignedUrl(fileId, 120);
+      url = data?.signedUrl;
+    } catch(e) {}
+  }
+  if (!url) { modal.remove(); toast('Could not load preview', 'error'); return; }
+
+  const isImage = /\.(png|jpg|jpeg|gif|webp|svg)$/i.test(filename) || (mimeType && mimeType.startsWith('image/'));
+  const isPDF   = /\.pdf$/i.test(filename) || mimeType === 'application/pdf';
+
+  const mediaHTML = isImage
+    ? `<img src="${url}" alt="${esc(filename)}" style="max-width:100%;max-height:82dvh;border-radius:12px;object-fit:contain;box-shadow:0 8px 40px rgba(0,0,0,0.5)">`
+    : isPDF
+    ? `<iframe src="${url}#toolbar=0" style="width:min(820px,96vw);height:82dvh;border:none;border-radius:12px;background:#fff;box-shadow:0 8px 40px rgba(0,0,0,0.4)"></iframe>`
+    : `<div style="background:rgba(255,255,255,0.08);border-radius:12px;padding:32px;color:#fff;font-size:14px;text-align:center">
+         <div style="font-size:36px;margin-bottom:12px">📄</div>
+         Preview not available for this file type.<br>
+         <a href="${url}" download="${esc(filename)}" style="color:#A9A3F5;margin-top:12px;display:inline-block">Download instead</a>
+       </div>`;
+
+  modal.innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:space-between;width:min(820px,96vw);margin-bottom:12px;gap:12px">
+      <div style="font-size:13px;font-weight:600;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;opacity:0.9">${esc(filename)}</div>
+      <div style="display:flex;gap:8px;flex-shrink:0">
+        <a href="${url}" download="${esc(filename)}" style="display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,0.12);border:none;color:#fff;width:34px;height:34px;border-radius:9px;cursor:pointer;font-size:15px;text-decoration:none" title="Download">⬇</a>
+        <button onclick="document.getElementById('file-preview-modal').remove()" style="background:rgba(255,255,255,0.12);border:none;color:#fff;width:34px;height:34px;border-radius:9px;cursor:pointer;font-size:18px;line-height:1">✕</button>
+      </div>
+    </div>
+    ${mediaHTML}`;
 }
+
 
 async function deleteFile(fileId, pid) {
   if (demoGuard()) return;
@@ -3570,6 +3638,7 @@ function startChatRealtime(projectId, myUserId, isLead) {
       };
 
       const msgs = document.getElementById('msgs');
+      if (msgs) msgs.style.willChange = 'scroll-position';
 
       // Track unread if chat tab not visible
       const chatTabActive = document.querySelector('.tab.on[data-t="chat"]');
@@ -5133,6 +5202,11 @@ StorageEngine.uploadFile = async (projectId, userId, file) => {
 
   // Initialise push notifications
   PushEngine.init();
+  // Schedule non-critical inits during idle time
+  const idleInit = window.requestIdleCallback || (fn => setTimeout(fn, 200));
+  idleInit(() => {
+    PushEngine.scheduleDeadlineCheck();
+  });
 
   // Handle navigation messages from service worker (notification click)
   if ('serviceWorker' in navigator) {
@@ -5246,5 +5320,60 @@ const PushEngine = (() => {
     return false;
   }
 
-  return { init, notifyIfHidden, requestPermission };
+  // ── Send push to a specific user ─────────────────────────────────
+  async function sendPushToUser(userId, title, body, projectId) {
+    if (!userId || userId === S.user?.id) return;
+    try {
+      const sb = StorageEngine._sb();
+      const { data } = await sb.from('push_subscriptions').select('subscription').eq('user_id', userId).maybeSingle();
+      if (!data?.subscription) return;
+      await fetch(`${window.SUPABASE_URL}/functions/v1/send-push`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${window.SUPABASE_ANON_KEY}` },
+        body: JSON.stringify({ subscription: data.subscription, title, body, projectId }),
+      });
+    } catch(e) { console.warn('[uni-co] sendPushToUser failed:', e); }
+  }
+
+  // ── Send push to all project members except sender ────────────────
+  async function sendPushToProjectMembers(projectId, excludeUserId, title, body) {
+    try {
+      const sb = StorageEngine._sb();
+      const { data: members } = await sb.from('members').select('user_id').eq('project_id', projectId);
+      if (!members) return;
+      for (const m of members) {
+        if (m.user_id === excludeUserId) continue;
+        await sendPushToUser(m.user_id, title, body, projectId);
+      }
+    } catch(e) { console.warn('[uni-co] sendPushToProjectMembers failed:', e); }
+  }
+
+  // ── Deadline reminder — checks every hour for tasks due tomorrow ──
+  function scheduleDeadlineCheck() {
+    async function check() {
+      if (!S.user) return;
+      try {
+        const sb = StorageEngine._sb();
+        const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1);
+        const dateStr = tomorrow.toISOString().slice(0, 10);
+        const { data: tasks } = await sb.from('tasks').select('id,title,project_id,due_date')
+          .eq('assignee_id', S.user.id).eq('due_date', dateStr).neq('status', 'DONE');
+        if (!tasks?.length) return;
+        if (Notification.permission !== 'granted') return;
+        for (const t of tasks) {
+          navigator.serviceWorker.ready.then(reg => {
+            reg.showNotification('⏰ Task due tomorrow — uni-co', {
+              body: t.title, icon: '/icons/icon-192x192.png',
+              badge: '/icons/icon-72x72.png', tag: `deadline-${t.id}`,
+              data: { url: `/?ws=${t.project_id}` },
+            });
+          });
+        }
+      } catch(e) {}
+    }
+    setTimeout(check, 5000);
+    setInterval(check, 60 * 60 * 1000);
+  }
+
+  return { init, notifyIfHidden, requestPermission, sendPushToUser, sendPushToProjectMembers, scheduleDeadlineCheck };
 })();
