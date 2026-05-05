@@ -778,7 +778,6 @@ window.go = async function go(page, data = {}) {
   if (window._reattachNavMainListener) window._reattachNavMainListener();
 
   stopChatRealtime();
-  stopProjectRealtime();
   if (page === 'dashboard') await showDashboard();
   else if (page === 'projects') await showProjects();
   else if (page === 'explore') await showExplore();
@@ -2680,7 +2679,6 @@ async function submitTask() {
   });
   M.close('new-task');
   toast('Task added', 'success');
-  broadcastProjectUpdate(_editProjectId, 'task', `${S.user?.fullName?.split(' ')[0] || 'Someone'} added a task`);
   if (assigneeId && assigneeId !== S.user?.id) {
     const p = window._wsProject;
     PushEngine.sendPushToUser(assigneeId, `📋 New task assigned — ${p?.title || 'uni-co'}`, `${S.user?.fullName || 'Someone'} assigned you: ${title}`, _editProjectId);
@@ -2718,7 +2716,6 @@ async function saveTask() {
   });
   M.close('task-detail');
   toast('Task saved', 'success');
-  broadcastProjectUpdate(S.project, 'task', `${S.user?.fullName?.split(' ')[0] || 'Someone'} updated a task`);
   // Trigger done-glow if moved to DONE
   if (newStatus === 'DONE' && prev.status !== 'DONE') {
     setTimeout(() => {
@@ -2735,7 +2732,6 @@ async function deleteTask() {
   await StorageEngine.deleteTask(_editTaskId);
   M.close('task-detail');
   toast('Task deleted');
-  broadcastProjectUpdate(S.project, 'task', `${S.user?.fullName?.split(' ')[0] || 'Someone'} deleted a task`);
   if (S.project) reloadWs();
 }
 
@@ -2805,7 +2801,8 @@ async function showWorkspace(id) {
   </div>`;
 
   window._wsProject = p;
-  startProjectRealtime(id);
+
+  // Close ws menu on outside click
   document.addEventListener('click', function wsMenuClose(e) {
     if (!document.getElementById('ws-menu-btn')?.contains(e.target)) {
       const menu = document.getElementById('ws-menu');
@@ -2828,7 +2825,6 @@ window.editProjTitle = async function(id) {
   if (!title || title === p.title) return;
   await StorageEngine.updateProject(id, { title });
   toast('Project renamed', 'success');
-  broadcastProjectUpdate(id, 'overview', `${S.user?.fullName?.split(' ')[0] || 'Someone'} renamed the project`);
   reloadWs();
 };
 
@@ -3091,7 +3087,6 @@ window.updatePerm = async function(permId, userId, projectId, cap, value) {
     });
   }
   toast(`Permission updated`, 'success');
-  broadcastProjectUpdate(projectId, 'member', `${S.user?.fullName?.split(' ')[0] || 'Someone'} updated permissions`);
   // Reload side panel
   const p = await StorageEngine.getProject(projectId);
   window._wsProject = p;
@@ -3358,7 +3353,6 @@ window.dropKanban = async function(e, status, pid) {
   const taskId = e.dataTransfer.getData('taskId');
   if (!taskId) return;
   await StorageEngine.updateTask(taskId, { status });
-  broadcastProjectUpdate(pid, 'task', `${S.user?.fullName?.split(' ')[0] || 'Someone'} moved a task`);
   const p = await StorageEngine.getProject(pid);
   window._wsProject = p;
   renderKanban(document.getElementById('ws-main'), p);
@@ -3454,7 +3448,6 @@ async function doUpload(file, pid) {
   toast(`Uploading ${file.name}...`);
   await StorageEngine.uploadFile(pid, S.user.id, file);
   toast(`${file.name} uploaded`, 'success');
-  broadcastProjectUpdate(pid, 'file', `${S.user?.fullName?.split(' ')[0] || 'Someone'} uploaded ${file.name}`);
   reloadWs();
 }
 
@@ -3465,22 +3458,35 @@ async function previewFile(fileId, filename, fileUrl, mimeType) {
   const modal = document.createElement('div');
   modal.id = 'file-preview-modal';
   modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.82);z-index:500;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:16px;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)';
-  modal.innerHTML = `<div style="color:#fff;font-size:13px;opacity:0.6">Loading preview…</div>`;
+  modal.innerHTML = `<div style="color:#fff;font-size:13px;opacity:0.6;display:flex;align-items:center;gap:8px"><div style="width:16px;height:16px;border-radius:50%;border:2px solid #fff;border-top-color:transparent;animation:spin 0.7s linear infinite"></div> Loading preview…</div>`;
   modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+  document.addEventListener('keydown', function escClose(e) {
+    if (e.key === 'Escape') { modal.remove(); document.removeEventListener('keydown', escClose); }
+  });
   document.body.appendChild(modal);
 
-  let url = fileUrl;
-  if (!url || url === 'undefined' || url === '') {
-    try {
-      const sb = StorageEngine._sb();
-      const { data } = await sb.storage.from('project-files').createSignedUrl(fileId, 120);
-      url = data?.signedUrl;
-    } catch(e) {}
-  }
+  // Files are stored as base64 dataUrl in the DB — always load from there first
+  let url = null;
+  let resolvedMimeType = mimeType;
+
+  try {
+    const fileRecord = await StorageEngine.get('files', fileId);
+    if (fileRecord?.dataUrl) {
+      url = fileRecord.dataUrl;
+      // Infer mimeType from the dataUrl header if not passed
+      if (!resolvedMimeType && url.startsWith('data:')) {
+        resolvedMimeType = url.split(';')[0].replace('data:', '');
+      }
+    }
+  } catch(e) {}
+
+  // Fallback: plain URL if explicitly provided and DB fetch failed
+  if (!url && fileUrl && fileUrl !== 'undefined' && fileUrl !== '') url = fileUrl;
+
   if (!url) { modal.remove(); toast('Could not load preview', 'error'); return; }
 
-  const isImage = /\.(png|jpg|jpeg|gif|webp|svg)$/i.test(filename) || (mimeType && mimeType.startsWith('image/'));
-  const isPDF   = /\.pdf$/i.test(filename) || mimeType === 'application/pdf';
+  const isImage = /\.(png|jpg|jpeg|gif|webp|svg)$/i.test(filename) || (resolvedMimeType && resolvedMimeType.startsWith('image/'));
+  const isPDF   = /\.pdf$/i.test(filename) || resolvedMimeType === 'application/pdf';
 
   const mediaHTML = isImage
     ? `<img src="${url}" alt="${esc(filename)}" style="max-width:100%;max-height:82dvh;border-radius:12px;object-fit:contain;box-shadow:0 8px 40px rgba(0,0,0,0.5)">`
@@ -3489,15 +3495,15 @@ async function previewFile(fileId, filename, fileUrl, mimeType) {
     : `<div style="background:rgba(255,255,255,0.08);border-radius:12px;padding:32px;color:#fff;font-size:14px;text-align:center">
          <div style="font-size:36px;margin-bottom:12px">📄</div>
          Preview not available for this file type.<br>
-         <a href="${url}" download="${esc(filename)}" style="color:#A9A3F5;margin-top:12px;display:inline-block">Download instead</a>
+         <button onclick="StorageEngine.downloadFile('${fileId}')" style="margin-top:14px;background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.2);color:#fff;padding:9px 18px;border-radius:9px;cursor:pointer;font-size:13px">⬇ Download instead</button>
        </div>`;
 
   modal.innerHTML = `
     <div style="display:flex;align-items:center;justify-content:space-between;width:min(820px,96vw);margin-bottom:12px;gap:12px">
       <div style="font-size:13px;font-weight:600;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;opacity:0.9">${esc(filename)}</div>
       <div style="display:flex;gap:8px;flex-shrink:0">
-        <a href="${url}" download="${esc(filename)}" style="display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,0.12);border:none;color:#fff;width:34px;height:34px;border-radius:9px;cursor:pointer;font-size:15px;text-decoration:none" title="Download">⬇</a>
-        <button onclick="document.getElementById('file-preview-modal').remove()" style="background:rgba(255,255,255,0.12);border:none;color:#fff;width:34px;height:34px;border-radius:9px;cursor:pointer;font-size:18px;line-height:1">✕</button>
+        <button onclick="StorageEngine.downloadFile('${fileId}')" style="display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,0.12);border:1px solid rgba(255,255,255,0.18);color:#fff;width:34px;height:34px;border-radius:9px;cursor:pointer;font-size:15px" title="Download">⬇</button>
+        <button onclick="document.getElementById('file-preview-modal').remove()" style="background:rgba(255,255,255,0.12);border:1px solid rgba(255,255,255,0.18);color:#fff;width:34px;height:34px;border-radius:9px;cursor:pointer;font-size:18px;line-height:1">✕</button>
       </div>
     </div>
     ${mediaHTML}`;
@@ -3509,7 +3515,6 @@ async function deleteFile(fileId, pid) {
   if (!confirm('Delete this file? This cannot be undone.')) return;
   await StorageEngine.deleteFile(fileId);
   toast('File deleted');
-  broadcastProjectUpdate(pid, 'file', `${S.user?.fullName?.split(' ')[0] || 'Someone'} deleted a file`);
   reloadWs();
 }
 
@@ -3519,82 +3524,7 @@ async function addFileTag(fileId) {
   const f = await StorageEngine.get('files', fileId);
   await StorageEngine.updateFileTags(fileId, [...(f.tags || []), tag.toLowerCase().trim()]);
   toast(`Tag "${tag}" added`, 'success');
-  broadcastProjectUpdate(S.project, 'file', `${S.user?.fullName?.split(' ')[0] || 'Someone'} tagged a file`);
   reloadWs();
-}
-
-/* ══════════════════════════════════════════════════════════════════
-   PROJECT REAL-TIME — broadcast channel for all non-chat mutations
-   Every member in the workspace receives updates instantly without
-   needing to refresh: tasks, files, quizzes, kanban moves, etc.
-══════════════════════════════════════════════════════════════════ */
-window._projectChannel = null;
-
-function startProjectRealtime(projectId) {
-  stopProjectRealtime();
-  const sb = StorageEngine._sb ? StorageEngine._sb() : null;
-  if (!sb || !projectId) return;
-
-  window._projectChannel = sb
-    .channel(`project:${projectId}`)
-    .on('broadcast', { event: 'project_update' }, async (payload) => {
-      const { type, actorId, label } = payload.payload || {};
-      // Don't react to our own broadcasts (we already updated locally)
-      if (actorId === S?.user?.id) return;
-      // Only react if we're still in this workspace
-      if (S.project !== projectId) return;
-
-      // Invalidate cache so the reload gets fresh data
-      StorageEngine.invalidateProject(projectId);
-
-      // Show a subtle "live update" toast
-      if (label) toast(`↻ ${label}`, 'info', 2200);
-
-      // Re-render only the active tab — no full page reload
-      const activeTab = document.querySelector('.tab.on')?.dataset?.t;
-      const m = document.getElementById('ws-main');
-      if (!m) return;
-
-      // Fetch fresh project data
-      const p = await StorageEngine.getProject(projectId);
-      if (!p) return;
-      window._wsProject = p;
-
-      // Re-render the visible tab
-      if      (type === 'task'     && activeTab === 'board')    renderKanban(m, p);
-      else if (type === 'task'     && activeTab === 'calendar') wsTab(document.querySelector('.tab.on'), 'calendar');
-      else if (type === 'task'     && activeTab === 'overview') renderOverview(m, p);
-      else if (type === 'file'     && activeTab === 'files')    renderFiles(m, p);
-      else if (type === 'quiz'     && activeTab === 'quiz')     renderQuiz(m, p);
-      else if (type === 'overview' || type === 'member') {
-        // Refresh side panel and header too
-        const side = document.getElementById('ws-side');
-        const isLead = p.members?.some(mem => mem.userId === S.user.id && mem.role === 'LEAD');
-        if (side) side.innerHTML = renderSide(p, isLead);
-        if (activeTab === 'overview') renderOverview(m, p);
-      }
-    })
-    .subscribe();
-}
-
-function stopProjectRealtime() {
-  if (window._projectChannel) {
-    try { window._projectChannel.unsubscribe(); } catch(e) {}
-    window._projectChannel = null;
-  }
-}
-
-// Broadcast a mutation event to all other members in the project
-function broadcastProjectUpdate(projectId, type, label) {
-  const ch = window._projectChannel;
-  if (!ch || !projectId) return;
-  try {
-    ch.send({
-      type: 'broadcast',
-      event: 'project_update',
-      payload: { type, label, actorId: S?.user?.id, ts: Date.now() }
-    });
-  } catch(e) {}
 }
 
 /* ══════════════════════════════════════════════════════════════════
@@ -4275,7 +4205,6 @@ function renderQuiz(container, p) {
     if (questions.length === 0) { toast('Add at least one question', 'error'); return; }
     await StorageEngine.createQuiz({ projectId: pid, title, description: desc, questions, createdBy: S.user.id });
     toast('Quiz created!', 'success');
-    broadcastProjectUpdate(pid, 'quiz', `${S.user?.fullName?.split(' ')[0] || 'Someone'} created a quiz`);
     reloadWs();
   };
 
