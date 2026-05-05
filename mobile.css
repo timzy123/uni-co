@@ -599,3 +599,144 @@ html, body {
 #mob-side-drawer .keycode { font-family: var(--mono); font-size: 15px; font-weight: 700; color: var(--brand); letter-spacing: 0.08em; flex: 1; }
 #mob-side-drawer .keymeta { font-size: 11px; color: var(--tx3); margin-top: 4px; }
 #mob-side-drawer .btn { min-height: 44px; }
+
+/* ══════════════════════════════════════════════════════════════════
+   POLISH — modals, search, preview, export, activity
+══════════════════════════════════════════════════════════════════ */
+
+/* Global search modal — full-width on phone */
+@media (max-width: 600px) {
+  #global-search-modal {
+    padding: 12px 8px 8px !important;
+    align-items: flex-start !important;
+  }
+  #global-search-modal > div {
+    border-radius: 16px !important;
+    max-width: 100% !important;
+  }
+  #gs-results {
+    max-height: 55dvh !important;
+  }
+}
+
+/* File preview modal — full screen on phone */
+@media (max-width: 600px) {
+  #file-preview-modal {
+    padding: 12px 8px !important;
+  }
+  #file-preview-modal img {
+    border-radius: 8px !important;
+    max-height: 75dvh !important;
+  }
+  #file-preview-modal iframe {
+    height: 72dvh !important;
+    border-radius: 8px !important;
+  }
+}
+
+/* Calendar — compact on small phones */
+@media (max-width: 600px) {
+  .cal-grid { grid-template-columns: repeat(7,1fr); }
+  .cal-cell { min-height: 52px !important; padding: 3px 2px !important; }
+  .cal-day-num { font-size: 10px !important; }
+  .cal-pill { font-size: 8px !important; padding: 1px 3px !important; }
+  /* Stack calendar and upcoming vertically */
+  #ws-main > div[style*="display:flex;gap:16px"] {
+    flex-direction: column !important;
+  }
+  #ws-main > div[style*="display:flex;gap:16px"] > div:last-child {
+    width: 100% !important;
+  }
+}
+
+/* Export button — don't overflow tabs on small screens */
+@media (max-width: 600px) {
+  .wsh .btn-ghost { display: none !important; }
+  /* Show export only in overflow menu — handled via JS */
+}
+
+/* Activity feed — tighter on mobile */
+@media (max-width: 600px) {
+  #main [style*="Recent activity"] h2 { font-size: 17px !important; }
+}
+
+/* Mention dropdown — stays within viewport */
+@media (max-width: 600px) {
+  #mention-dropdown {
+    bottom: 58px !important;
+    left: 8px !important;
+    right: 8px !important;
+    border-radius: 12px !important;
+  }
+}
+
+/* Cal-day modal — bottom sheet on phone */
+@media (max-width: 600px) {
+  #cal-day-modal {
+    align-items: flex-end !important;
+    padding: 0 !important;
+  }
+  #cal-day-modal > div {
+    border-radius: 20px 20px 0 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px)) !important;
+  }
+}
+
+/* Task detail modal — scrollable on phone with keyboard open */
+@media (max-width: 600px) {
+  #m-task-detail .modal {
+    max-height: 88dvh !important;
+    overflow-y: auto !important;
+  }
+  #m-task-detail .mb {
+    overflow-y: auto;
+  }
+}
+
+/* Smooth transitions on modals */
+.ov { transition: opacity 0.18s; }
+.ov:not(.on) { pointer-events: none; }
+
+/* PWA standalone — remove iOS address bar gap */
+@media (display-mode: standalone) {
+  .mob-header {
+    padding-top: env(safe-area-inset-top, 0px);
+    height: calc(var(--hh) + env(safe-area-inset-top, 0px)) !important;
+  }
+  #mob-nav {
+    padding-bottom: max(12px, env(safe-area-inset-bottom, 12px));
+  }
+}
+
+/* Skeleton loaders — smoother animation */
+.skel {
+  animation: skelPulse 1.4s ease-in-out infinite !important;
+}
+@keyframes skelPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+/* Smooth page transitions */
+.pg, .pg-full {
+  animation: pgFadeIn 0.18s ease-out;
+}
+@keyframes pgFadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Toast polish */
+@media (max-width: 600px) {
+  .toast {
+    border-radius: 12px !important;
+    padding: 12px 16px !important;
+    font-size: 13px !important;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.18) !important;
+  }
+}
+
+/* Prevent content flash before styles load */
+#app[style*="display:none"] { visibility: hidden; }
