@@ -4278,6 +4278,25 @@ async function sendChat(pid) {
   }
 }
 
+/* ── Delete chat message ────────────────────────────────────────────── */
+window.deleteChatMsg = async function(msgId) {
+  try {
+    // Optimistically remove from DOM
+    const el = document.querySelector(`[data-mid="${msgId}"]`);
+    if (el) {
+      el.style.transition = 'opacity 0.2s';
+      el.style.opacity = '0';
+      setTimeout(() => el.remove(), 200);
+    }
+    await StorageEngine.deleteMsg(msgId);
+  } catch(e) {
+    toast('Could not delete message', 'error');
+    // Restore visibility if delete failed
+    const el = document.querySelector(`[data-mid="${msgId}"]`);
+    if (el) el.style.opacity = '1';
+  }
+};
+
 /* ── Reply system ───────────────────────────────────────────────────── */
 window._replyTo = null; // { id, senderName, content }
 
