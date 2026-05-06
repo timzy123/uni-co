@@ -3338,20 +3338,20 @@ function renderKanban(container, p) {
       <button class="btn btn-ghost btn-sm" style="margin-left:auto;margin-right:4px" onclick="exportTasksPDF()" title="Export to PDF">📄 Export</button>
       <button class="btn btn-primary btn-sm" onclick="openAddTask('${p.id}','TODO')">${I.pl} Add task</button>
     </div>
-    <div class="kanban">
+    <div class="kanban" data-pid="${p.id}">
     ${cols.map(col => {
       const ct = sortTasks(tasks.filter(t => t.status === col.k), _kanbanSort);
       return `<div class="kcol" id="kcol-${col.k}"
         ondragover="event.preventDefault();this.classList.add('drag-over')"
         ondragleave="this.classList.remove('drag-over')"
-        ondrop="dropKanban(event,'${col.k}','${p.id}')">
+        ondrop="dropKanban(event,'${col.k}','${p.id}')" data-col="${col.k}">
         <div class="kch">
           <div class="klbl" style="color:${col.c}">${col.l}</div>
           <span class="kcnt">${ct.length}</span>
         </div>
         <div>
           ${ct.map(t => `<div class="tkcard ${t.status==='IN_PROGRESS'?'ip':t.status==='DONE'?'dn':''}"
-            draggable="true" data-tid="${t.id}"
+            draggable="true" data-tid="${t.id}" data-status="${t.status}"
             ondragstart="event.dataTransfer.setData('taskId','${t.id}')"
             onclick="openTaskDetail('${t.id}')"
             role="button" tabindex="0" aria-label="${esc(t.title)}" onkeydown="if(event.key==='Enter')openTaskDetail('${t.id}')">
@@ -3384,6 +3384,112 @@ window.dropKanban = async function(e, status, pid) {
   renderKanban(document.getElementById('ws-main'), p);
   toast('Task moved', 'success');
 };
+
+/* ── Touch drag for Kanban (mobile) ─────────────────────────────────── */
+(function() {
+  var _dragging = null;
+  var _ghost    = null;
+  var _startX   = 0;
+  var _startY   = 0;
+  var _offsetX  = 0;
+  var _offsetY  = 0;
+  var _moved    = false;
+  var _dragPid  = null;
+  var THRESHOLD = 8;
+
+  function getColAtPoint(x, y) {
+    var cols = document.querySelectorAll('.kcol[data-col]');
+    for (var i = 0; i < cols.length; i++) {
+      var r = cols[i].getBoundingClientRect();
+      if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom)
+        return cols[i].getAttribute('data-col');
+    }
+    return null;
+  }
+
+  function makeGhost(card) {
+    var g = card.cloneNode(true);
+    var r = card.getBoundingClientRect();
+    g.style.position   = 'fixed';
+    g.style.left       = r.left + 'px';
+    g.style.top        = r.top  + 'px';
+    g.style.width      = r.width + 'px';
+    g.style.opacity    = '0.88';
+    g.style.pointerEvents = 'none';
+    g.style.zIndex     = '9999';
+    g.style.transform  = 'rotate(2deg) scale(1.04)';
+    g.style.boxShadow  = '0 10px 36px rgba(0,0,0,0.25)';
+    g.style.borderRadius = '10px';
+    g.style.transition = 'none';
+    document.body.appendChild(g);
+    return g;
+  }
+
+  document.addEventListener('touchstart', function(e) {
+    var card = e.target.closest && e.target.closest('.tkcard[data-tid]');
+    if (!card) return;
+    var kb = card.closest('.kanban');
+    _dragPid = kb ? kb.getAttribute('data-pid') : (window._wsProject && window._wsProject.id);
+    var t = e.touches[0];
+    var r = card.getBoundingClientRect();
+    _startX = t.clientX; _startY = t.clientY;
+    _offsetX = t.clientX - r.left; _offsetY = t.clientY - r.top;
+    _dragging = card; _moved = false;
+  }, { passive: true });
+
+  document.addEventListener('touchmove', function(e) {
+    if (!_dragging) return;
+    var t = e.touches[0];
+    var dx = t.clientX - _startX;
+    var dy = t.clientY - _startY;
+    if (!_moved && Math.sqrt(dx*dx + dy*dy) < THRESHOLD) return;
+    if (!_moved) {
+      _moved = true;
+      _ghost = makeGhost(_dragging);
+      _dragging.style.opacity = '0.3';
+    }
+    e.preventDefault();
+    _ghost.style.left = (t.clientX - _offsetX) + 'px';
+    _ghost.style.top  = (t.clientY - _offsetY) + 'px';
+    document.querySelectorAll('.kcol').forEach(function(c) { c.classList.remove('drag-over'); });
+    var col = getColAtPoint(t.clientX, t.clientY);
+    if (col) {
+      var el = document.querySelector('.kcol[data-col="' + col + '"]');
+      if (el) el.classList.add('drag-over');
+    }
+  }, { passive: false });
+
+  document.addEventListener('touchend', async function(e) {
+    if (!_dragging) return;
+    if (_ghost) { _ghost.remove(); _ghost = null; }
+    _dragging.style.opacity = '';
+    document.querySelectorAll('.kcol').forEach(function(c) { c.classList.remove('drag-over'); });
+    if (_moved) {
+      var t = e.changedTouches[0];
+      var newStatus = getColAtPoint(t.clientX, t.clientY);
+      var taskId    = _dragging.getAttribute('data-tid');
+      var oldStatus = _dragging.getAttribute('data-status');
+      if (newStatus && newStatus !== oldStatus && taskId) {
+        try {
+          await StorageEngine.updateTask(taskId, { status: newStatus });
+          var pid = _dragPid || (window._wsProject && window._wsProject.id);
+          var p   = await StorageEngine.getProject(pid);
+          window._wsProject = p;
+          renderKanban(document.getElementById('ws-main'), p);
+          toast('Task moved', 'success');
+        } catch(err) { toast('Could not move task', 'error'); }
+      }
+    }
+    _dragging = null; _moved = false; _dragPid = null;
+  }, { passive: true });
+
+  document.addEventListener('touchcancel', function() {
+    if (_ghost) { _ghost.remove(); _ghost = null; }
+    if (_dragging) { _dragging.style.opacity = ''; _dragging = null; }
+    document.querySelectorAll('.kcol').forEach(function(c) { c.classList.remove('drag-over'); });
+    _moved = false;
+  }, { passive: true });
+})();
 
 /* ── Files (with Vault tagging and version display) ─────────────────── */
 function renderFiles(container, p) {
@@ -5183,64 +5289,6 @@ function wsDebate(c, p) {
    SECTION 4 — Permissions Auditor + Boot/Init
 ═══════════════════════════════════════════════════════════════════ */
 
-/* ── Permissions Auditor ────────────────────────────────────────────── */
-async function showPermissionsAuditor(projectId) {
-  const perms = await StorageEngine.getPermissions(projectId);
-  const members = await StorageEngine.getAll('members', 'projectId', projectId);
-  const allUsers = await StorageEngine.getAll('users');
-  const um = Object.fromEntries(allUsers.map(u => [u.id, u]));
-
-  const modal = document.createElement('div');
-  modal.className = 'ov on';
-  modal.id = 'm-permissions';
-  modal.innerHTML = `<div class="modal" style="width:560px">
-    <div class="mh">
-      <div class="mtitle">Permissions Auditor</div>
-      <button class="mclose" onclick="document.getElementById('m-permissions').remove()">${I.cl}</button>
-    </div>
-    <div class="mb">
-      <p style="font-size:12px;color:var(--tx2);margin-bottom:14px">Manage who can invite, edit, and delete in this project.</p>
-      <div style="overflow-x:auto">
-        <table class="sheet">
-          <tr><th>Member</th><th style="text-align:center">Can Invite</th><th style="text-align:center">Can Edit</th><th style="text-align:center">Can Delete</th></tr>
-          ${members.map(m => {
-            const p = perms.find(x => x.userId === m.userId) || { canInvite: false, canEdit: false, canDelete: false };
-            const name = um[m.userId]?.fullName || 'Unknown';
-            return `<tr>
-              <td style="display:flex;align-items:center;gap:8px">${av(um[m.userId], 'sm')} ${esc(name)}</td>
-              <td style="text-align:center"><input type="checkbox" ${p.canInvite ? 'checked' : ''} onchange="togglePerm('${p.id || 'new'}','${m.userId}','canInvite',this.checked)"></td>
-              <td style="text-align:center"><input type="checkbox" ${p.canEdit ? 'checked' : ''} onchange="togglePerm('${p.id || 'new'}','${m.userId}','canEdit',this.checked)"></td>
-              <td style="text-align:center"><input type="checkbox" ${p.canDelete ? 'checked' : ''} onchange="togglePerm('${p.id || 'new'}','${m.userId}','canDelete',this.checked)"></td>
-            </tr>`;
-          }).join('')}
-        </table>
-      </div>
-    </div>
-    <div class="mf">
-      <button class="btn" onclick="document.getElementById('m-permissions').remove()">Close</button>
-    </div>
-  </div>`;
-
-  document.body.appendChild(modal);
-
-  window.togglePerm = async (permId, userId, field, value) => {
-    if (demoGuard()) return;
-    if (permId === 'new') {
-      await StorageEngine.put('permissions', {
-        id: StorageEngine.uid(),
-        projectId,
-        userId,
-        canInvite: field === 'canInvite' ? value : false,
-        canEdit: field === 'canEdit' ? value : false,
-        canDelete: field === 'canDelete' ? value : false,
-      });
-    } else {
-      const p = await StorageEngine.get('permissions', permId);
-      if (p) await StorageEngine.updatePermission(permId, { [field]: value });
-    }
-    toast(`Permission updated for ${field}`, 'success');
-  };
-}
 
 /* ── Permissions link in workspace sidebar ──────────────────────────── */
 // (Augments renderSide to include an auditor button for leads)
@@ -5480,42 +5528,30 @@ const PushEngine = (() => {
 
   async function init() {
     if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
-    if (PUBLIC_VAPID_KEY === 'YOUR_VAPID_PUBLIC_KEY_HERE') return; // not configured yet
+    if (PUBLIC_VAPID_KEY === 'YOUR_VAPID_PUBLIC_KEY_HERE') return;
     try {
+      // Only re-save existing subscription on init — never auto-prompt for permission
       const reg = await navigator.serviceWorker.ready;
       const existing = await reg.pushManager.getSubscription();
-      if (existing) {
+      if (existing && Notification.permission === 'granted') {
         await saveSubscription(existing);
-        return;
       }
-      const permission = await Notification.requestPermission();
-      if (permission !== 'granted') return;
-      const sub = await reg.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(PUBLIC_VAPID_KEY),
-      });
-      await saveSubscription(sub);
-    } catch (e) {
+    } catch(e) {
       console.warn('[uni-co] Push init failed:', e);
     }
   }
 
   async function saveSubscription(sub) {
-    // Store in Supabase push_subscriptions table (create via SQL editor):
-    // CREATE TABLE push_subscriptions (
-    //   id uuid primary key default gen_random_uuid(),
-    //   user_id uuid references users(id) on delete cascade,
-    //   subscription jsonb not null,
-    //   created_at timestamptz default now()
-    // );
     try {
-      const sb = StorageEngine._sb();
-      await sb.from('push_subscriptions').upsert({
-        user_id: S.user?.id,
-        subscription: sub.toJSON(),
-      }, { onConflict: 'user_id' });
-    } catch (e) {
-      console.warn('[uni-co] Could not save push subscription:', e);
+      const sb  = StorageEngine._sb();
+      const uid = S.user?.id;
+      if (!uid) { console.warn('[uni-co] Push: no user id'); return; }
+      const payload = { user_id: String(uid), subscription: sub.toJSON() };
+      const { error } = await sb.from('push_subscriptions').upsert(payload, { onConflict: 'user_id' });
+      if (error) throw error;
+      console.log('[uni-co] Push subscription saved for user', uid);
+    } catch(e) {
+      console.error('[uni-co] Could not save push subscription:', e?.message || e);
     }
   }
 
@@ -5543,20 +5579,42 @@ const PushEngine = (() => {
 
   // Ask for permission (call this from settings or first message send)
   async function requestPermission() {
-    if (!('Notification' in window)) {
-      toast('Notifications not supported in this browser', 'error');
-      return false;
+    if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
+      toast('Push notifications not supported on this browser', 'error'); return false;
     }
-    if (Notification.permission === 'granted') return true;
-    const result = await Notification.requestPermission();
-    if (result === 'granted') {
-      toast('Notifications enabled ✓', 'success');
-      await init();
+    if (PUBLIC_VAPID_KEY === 'YOUR_VAPID_PUBLIC_KEY_HERE') {
+      toast('VAPID key not configured', 'error'); return false;
+    }
+    if (Notification.permission === 'granted') {
+      // Already granted — re-subscribe and save in case table was missing before
+      try {
+        const reg = await navigator.serviceWorker.ready;
+        let sub = await reg.pushManager.getSubscription();
+        if (!sub) {
+          sub = await reg.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: urlBase64ToUint8Array(PUBLIC_VAPID_KEY),
+          });
+        }
+        await saveSubscription(sub);
+        toast('Push notifications active', 'success');
+      } catch(e) { toast('Could not activate push: ' + e.message, 'error'); }
       return true;
     }
-    toast('Notification permission denied', 'error');
-    return false;
+    const result = await Notification.requestPermission();
+    if (result !== 'granted') { toast('Notification permission denied', 'error'); return false; }
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(PUBLIC_VAPID_KEY),
+      });
+      await saveSubscription(sub);
+      toast('Push notifications enabled', 'success');
+    } catch(e) { toast('Could not subscribe: ' + e.message, 'error'); return false; }
+    return true;
   }
+
 
   // ── Send push to a specific user ─────────────────────────────────
   async function sendPushToUser(userId, title, body, projectId) {
@@ -5570,7 +5628,7 @@ const PushEngine = (() => {
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${window.SUPABASE_ANON_KEY}` },
         body: JSON.stringify({ subscription: data.subscription, title, body, projectId }),
       });
-    } catch(e) { console.warn('[uni-co] sendPushToUser failed:', e); }
+    } catch(e) { console.error('[uni-co] sendPushToUser failed:', e?.message || e); }
   }
 
   // ── Send push to all project members except sender ────────────────
