@@ -796,6 +796,7 @@ window.go = async function go(page, data = {}) {
   if (window._reattachNavMainListener) window._reattachNavMainListener();
 
   stopChatRealtime();
+  stopPresence();
   if (page === 'dashboard') await showDashboard();
   else if (page === 'projects') await showProjects();
   else if (page === 'explore') await showExplore();
@@ -3431,7 +3432,7 @@ function renderFiles(container, p) {
             </div>
             <div style="display:flex;gap:4px">
               ${/\.(png|jpg|jpeg|gif|webp|svg|pdf)$/i.test(f.filename || '')
-                ? `<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();previewFile('${f.id}','${esc(f.filename)}','','${f.mimeType || ''}')" title="Preview">👁</button>` : ''}
+                ? `<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();previewFile('${f.id}','${esc(f.filename)}','${esc(f.fileUrl || '')}','${f.mimeType || ''}')" title="Preview">👁</button>` : ''}
               <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();addFileTag('${f.id}')" title="Tag">🏷</button>
               <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();StorageEngine.downloadFile('${f.id}')" title="Download">${I.fi}</button>
               ${canDelete ? `<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();deleteFile('${f.id}','${p.id}')" title="Delete" style="color:var(--err)">${I.tr}</button>` : ''}
@@ -3520,9 +3521,20 @@ async function doUpload(file, pid) {
       xhr.send(safeFile);
     });
 
-    // Get public URL
+    // Get URL — try public first, fall back to signed
     const sb = StorageEngine._sb();
-    const { data: urlData } = sb.storage.from('project-files').getPublicUrl(filePath);
+    let fileUrl = '';
+    try {
+      const { data: urlData } = sb.storage.from('project-files').getPublicUrl(filePath);
+      fileUrl = urlData?.publicUrl || '';
+    } catch(e) {}
+    // If public URL unavailable, store path and generate signed URLs on demand
+    if (!fileUrl) {
+      try {
+        const { data: signed } = await sb.storage.from('project-files').createSignedUrl(filePath, 60 * 60 * 24 * 7); // 7 days
+        fileUrl = signed?.signedUrl || '';
+      } catch(e) {}
+    }
 
     // Save record to DB
     await StorageEngine.put('files', {
@@ -3533,7 +3545,7 @@ async function doUpload(file, pid) {
       fileType:     cleanName.split('.').pop() || 'bin',
       sizeBytes:    safeFile.size,
       mimeType:     safeFile.type,
-      fileUrl:      urlData?.publicUrl || '',
+      fileUrl,
       filePath,
       version:      1,
       tags:         [],
@@ -3582,7 +3594,22 @@ async function previewFile(fileId, filename, fileUrl, mimeType) {
     }
   } catch(e) {}
 
-  // Fallback: plain URL if explicitly provided and DB fetch failed
+  // Fallback 1: file stored in Supabase Storage — generate fresh signed URL
+  if (!url) {
+    try {
+      const fileRecord = await StorageEngine.get('files', fileId);
+      const filePath = fileRecord?.filePath;
+      if (filePath) {
+        const sb = StorageEngine._sb();
+        const { data: signed } = await sb.storage.from('project-files').createSignedUrl(filePath, 300);
+        url = signed?.signedUrl || '';
+        if (fileRecord?.mimeType && !resolvedMimeType) resolvedMimeType = fileRecord.mimeType;
+        if (fileRecord?.filename && !filename) filename = fileRecord.filename;
+      }
+    } catch(e) {}
+  }
+
+  // Fallback 2: use stored fileUrl directly
   if (!url && fileUrl && fileUrl !== 'undefined' && fileUrl !== '') url = fileUrl;
 
   if (!url) { modal.remove(); toast('Could not load preview', 'error'); return; }
@@ -3715,6 +3742,58 @@ function renderChat(container, p) {
 
   // Start real-time subscription
   startChatRealtime(p.id, u.id, isLead);
+  // Start global presence — tracks online users across all tabs not just chat
+  startPresence(p.id, u.id);
+}
+
+/* ── Global presence channel — tracks online users across all tabs ── */
+let _presenceChannel = null;
+
+function startPresence(projectId, userId) {
+  if (_presenceChannel) {
+    try { _presenceChannel.unsubscribe(); } catch(e) {}
+    _presenceChannel = null;
+  }
+  try {
+    const sb = StorageEngine._sb();
+    _presenceChannel = sb.channel('presence:' + projectId, {
+      config: { presence: { key: userId } }
+    });
+    _presenceChannel
+      .on('presence', { event: 'sync' }, () => {
+        const state = _presenceChannel.presenceState();
+        window._onlineUsers = {};
+        Object.values(state).forEach(presences => {
+          presences.forEach(p => { if (p.userId) window._onlineUsers[p.userId] = true; });
+        });
+        updatePresenceDots();
+      })
+      .on('presence', { event: 'join' }, ({ newPresences }) => {
+        window._onlineUsers = window._onlineUsers || {};
+        newPresences.forEach(p => { if (p.userId) window._onlineUsers[p.userId] = true; });
+        updatePresenceDots();
+      })
+      .on('presence', { event: 'leave' }, ({ leftPresences }) => {
+        window._onlineUsers = window._onlineUsers || {};
+        leftPresences.forEach(p => { if (p.userId) delete window._onlineUsers[p.userId]; });
+        updatePresenceDots();
+      })
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          _presenceChannel.track({ userId, ts: Date.now() });
+        }
+      });
+  } catch(e) {
+    console.warn('[uni-co] Presence channel failed:', e);
+  }
+}
+
+function stopPresence() {
+  if (_presenceChannel) {
+    try { _presenceChannel.unsubscribe(); } catch(e) {}
+    _presenceChannel = null;
+  }
+  window._onlineUsers = {};
 }
 
 /* ── Real-time subscription ────────────────────────────────────────── */
@@ -3793,26 +3872,6 @@ function startChatRealtime(projectId, myUserId, isLead) {
       if (row) { row.style.opacity = '0'; setTimeout(() => row.remove(), 200); }
     })
 
-    // Presence tracking
-    .on('presence', { event: 'sync' }, () => {
-      const state = window._chatChannel.presenceState();
-      window._onlineUsers = {};
-      Object.values(state).forEach(presences => {
-        presences.forEach(p => { if (p.userId) window._onlineUsers[p.userId] = true; });
-      });
-      updatePresenceDots();
-    })
-    .on('presence', { event: 'join' }, ({ newPresences }) => {
-      window._onlineUsers = window._onlineUsers || {};
-      newPresences.forEach(p => { if (p.userId) window._onlineUsers[p.userId] = true; });
-      updatePresenceDots();
-    })
-    .on('presence', { event: 'leave' }, ({ leftPresences }) => {
-      window._onlineUsers = window._onlineUsers || {};
-      leftPresences.forEach(p => { if (p.userId) delete window._onlineUsers[p.userId]; });
-      updatePresenceDots();
-    })
-
     // Typing broadcast (presence-style)
     .on('broadcast', { event: 'typing' }, (payload) => {
       const { userId, name } = payload.payload;
@@ -3834,8 +3893,6 @@ function startChatRealtime(projectId, myUserId, isLead) {
       if (status === 'SUBSCRIBED') {
         indicator.innerHTML = '<span style="width:6px;height:6px;border-radius:50%;background:var(--ok);display:inline-block"></span> Live';
         indicator.style.color = 'var(--ok)';
-        // Track own presence
-        window._chatChannel.track({ userId: myUserId, ts: Date.now() });
       } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
         indicator.innerHTML = '<span style="width:6px;height:6px;border-radius:50%;background:var(--err);display:inline-block"></span> Reconnecting…';
         indicator.style.color = 'var(--err)';
@@ -3889,23 +3946,31 @@ function clearChatUnread(projectId) {
 
 function updatePresenceDots() {
   const online = window._onlineUsers || {};
-  // Update all avatar elements that have data-uid
+
   document.querySelectorAll('[data-uid]').forEach(el => {
     const uid = el.getAttribute('data-uid');
-    let dot = el.querySelector('.presence-dot');
+    let wrapper = el.parentElement?.classList.contains('av-presence-wrap') ? el.parentElement : null;
+    if (!wrapper) {
+      wrapper = document.createElement('span');
+      wrapper.className = 'av-presence-wrap';
+      wrapper.style.cssText = 'position:relative;display:inline-flex;flex-shrink:0';
+      el.parentNode.insertBefore(wrapper, el);
+      wrapper.appendChild(el);
+    }
+    let dot = wrapper.querySelector('.presence-dot');
     if (online[uid]) {
       if (!dot) {
         dot = document.createElement('span');
         dot.className = 'presence-dot';
-        dot.style.cssText = 'position:absolute;bottom:0;right:0;width:8px;height:8px;border-radius:50%;background:var(--ok);border:2px solid var(--sur);box-sizing:content-box';
-        el.style.position = 'relative';
-        el.appendChild(dot);
+        dot.style.cssText = 'position:absolute;bottom:-1px;right:-1px;width:8px;height:8px;border-radius:50%;background:#22c55e;border:2px solid var(--sur);pointer-events:none;z-index:2';
+        wrapper.appendChild(dot);
       }
     } else if (dot) {
       dot.remove();
     }
   });
-  // Update the chat member count with online count
+
+  // Update online count in chat header
   const memberHeader = document.getElementById('chat-member-header');
   if (memberHeader) {
     memberHeader.querySelector('.online-count')?.remove();
@@ -3913,8 +3978,8 @@ function updatePresenceDots() {
     if (onlineCount > 0) {
       const span = document.createElement('span');
       span.className = 'online-count';
-      span.style.cssText = 'font-size:11px;color:var(--ok);font-weight:600';
-      span.textContent = `· ${onlineCount} online`;
+      span.style.cssText = 'font-size:11px;color:#22c55e;margin-left:4px;font-weight:600';
+      span.textContent = onlineCount + ' online';
       memberHeader.appendChild(span);
     }
   }
