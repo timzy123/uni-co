@@ -4471,6 +4471,8 @@ function chatSwipeEnd(e, el, msgId, senderName, content) {
 /* ── Quiz Module ────────────────────────────────────────────────────── */
 function renderQuiz(container, p) {
   const quizzes = p.quizzes || [];
+  const myMem   = (p.members || []).find(m => m.userId === S.user?.id);
+  const isLead  = myMem?.role === 'LEAD';
 
   function renderQuizList() {
     const ql = document.getElementById('quiz-list');
@@ -4478,10 +4480,16 @@ function renderQuiz(container, p) {
     ql.innerHTML = quizzes.length === 0
       ? `<div class="empty"><div class="emico">${I.qu}</div><p style="margin-top:8px">No quizzes yet</p><button class="btn btn-primary btn-sm" style="margin-top:10px" onclick="showQuizCreator('${p.id}')">${I.pl} Create Quiz</button></div>`
       : `<div style="margin-bottom:16px"><button class="btn btn-primary btn-sm" onclick="showQuizCreator('${p.id}')">${I.pl} Create Quiz</button></div>
-         ${quizzes.map(q => `<div class="quiz-card card-c" onclick="takeQuiz('${q.id}')">
-           <div style="display:flex;justify-content:space-between;align-items:center">
-             <div><div style="font-weight:600">${esc(q.title)}</div><div style="font-size:12px;color:var(--tx3);margin-top:2px">${(q.questions || []).length} questions · ${esc(q.description || '')}</div></div>
-             <span class="badge b-blue">Take</span>
+         ${quizzes.map(q => `<div class="quiz-card card-c" style="cursor:pointer">
+           <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+             <div style="flex:1;min-width:0" onclick="takeQuiz('${q.id}')">
+               <div style="font-weight:600">${esc(q.title)}</div>
+               <div style="font-size:12px;color:var(--tx3);margin-top:2px">${(q.questions || []).length} questions · ${esc(q.description || '')}</div>
+             </div>
+             <div style="display:flex;gap:6px;align-items:center;flex-shrink:0">
+               <span class="badge b-blue" onclick="takeQuiz('${q.id}')">Take</span>
+               ${(q.createdBy === S.user?.id || isLead) ? `<button onclick="event.stopPropagation();deleteQuiz('${q.id}','${p.id}')" style="background:none;border:none;cursor:pointer;color:var(--tx3);font-size:16px;padding:4px;border-radius:6px;line-height:1" onmouseover="this.style.color='var(--err)'" onmouseout="this.style.color='var(--tx3)'" title="Delete quiz">&times;</button>` : ''}
+             </div>
            </div>
          </div>`).join('')}`;
   }
@@ -4516,7 +4524,7 @@ function renderQuiz(container, p) {
     div.innerHTML = `
       <div class="fg"><label class="fl" for="qc-q-${i}">Question ${i + 1}</label><input class="fi qc-q" id="qc-q-${i}" placeholder="Question text..."></div>
       ${[0,1,2,3].map(j => `<div class="fg"><input class="fi qc-o" placeholder="Option ${j+1}${j===0?' (correct)':''}" data-correct="${j===0}"></div>`).join('')}
-      <span style="font-size:10px;color:var(--tx3)">First option = correct answer</span>
+      <span style="font-size:10px;color:var(--tx3)">First option is the correct answer — order will be shuffled for takers</span>
     `;
     qs.appendChild(div);
   };
@@ -4531,7 +4539,17 @@ function renderQuiz(container, p) {
     questionDivs.forEach(div => {
       const qText = div.querySelector('.qc-q')?.value?.trim();
       const opts = [...div.querySelectorAll('.qc-o')].map(inp => inp.value.trim()).filter(Boolean);
-      if (qText && opts.length >= 2) questions.push({ q: qText, options: opts, correctIndex: 0 });
+      if (qText && opts.length >= 2) {
+        // First option is the correct answer as entered — shuffle position randomly
+        const correctAnswer = opts[0];
+        const shuffled = [...opts];
+        for (let k = shuffled.length - 1; k > 0; k--) {
+          const r = Math.floor(Math.random() * (k + 1));
+          [shuffled[k], shuffled[r]] = [shuffled[r], shuffled[k]];
+        }
+        const correctIndex = shuffled.indexOf(correctAnswer);
+        questions.push({ q: qText, options: shuffled, correctIndex });
+      }
     });
     if (questions.length === 0) { toast('Add at least one question', 'error'); return; }
     await StorageEngine.createQuiz({ projectId: pid, title, description: desc, questions, createdBy: S.user.id });
@@ -4579,6 +4597,18 @@ function renderQuiz(container, p) {
 
   renderQuizList();
 }
+
+/* ── Delete Quiz ────────────────────────────────────────────────────── */
+window.deleteQuiz = async function(quizId, pid) {
+  if (!confirm('Delete this quiz? This cannot be undone.')) return;
+  try {
+    await StorageEngine.del('quizzes', quizId);
+    toast('Quiz deleted', 'success');
+    reloadWs();
+  } catch(e) {
+    toast('Could not delete quiz', 'error');
+  }
+};
 
 /* ── Dependency Graph ──────────────────────────────────────────────── */
 function renderDependencyGraph(container, p) {
