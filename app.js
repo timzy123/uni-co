@@ -4149,13 +4149,26 @@ function chatBubbleHTML(msg, myId, isLead) {
   const code = sender?.department?.code || '';
   const bg = db_(code.toUpperCase()), col = dc(code.toUpperCase());
 
-  // Render @mentions as highlighted spans
+  // Render @mentions — match against actual project member names to avoid false positives
   const renderContent = (text) => {
     if (!text) return '';
-    return esc(text).replace(/@([A-Za-z][A-Za-z0-9 ._-]{0,30})/g, (match, name) => {
+    let result = esc(text);
+    const members = window._wsProject?.members || [];
+    const allNames = members.map(m => (m.user?.fullName || '').trim()).filter(Boolean);
+    // Sort by length descending so "Sotonwa Jonathan" matches before "Sotonwa"
+    allNames.sort((a, b) => b.length - a.length);
+    for (const name of allNames) {
+      if (!name) continue;
+      const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const isSelfMention = name.toLowerCase() === (S.user?.fullName || '').toLowerCase();
-      return `<span style="background:${isSelfMention ? 'rgba(255,200,0,0.25)' : 'rgba(83,74,183,0.15)'};color:${isSelf ? 'rgba(255,255,255,0.9)' : 'var(--brand)'};border-radius:4px;padding:0 3px;font-weight:600">@${name}</span>`;
-    });
+      const bg  = isSelfMention ? 'rgba(255,200,0,0.25)' : 'rgba(83,74,183,0.15)';
+      const col = isSelf ? 'rgba(255,255,255,0.9)' : 'var(--brand)';
+      result = result.replace(
+        new RegExp('@' + escaped, 'g'),
+        `<span style="background:${bg};color:${col};border-radius:4px;padding:0 3px;font-weight:600">@${name}</span>`
+      );
+    }
+    return result;
   };
 
   // Reply quote block (shown if this message is a reply)
@@ -4235,21 +4248,20 @@ async function sendChat(pid) {
 
     // Push @mentioned members
     // Regex captures name until punctuation or end — stops at space+lowercase to avoid eating sentence
-    const mentionMatches = [...txt.matchAll(/@([A-Za-z][A-Za-z0-9._-]*(?:\s[A-Z][A-Za-z0-9._-]*)*)/g)];
-    if (mentionMatches.length > 0 && p?.members) {
+    if (p?.members) {
       const senderName = S.user?.fullName || 'Someone';
       const preview    = txt.length > 80 ? txt.slice(0, 80) + '...' : txt;
-      const notified   = new Set(); // avoid double-notifying same person
-      for (const match of mentionMatches) {
-        const mentionedName = match[1].trim().toLowerCase();
-        // Match on full name OR first name — take longest match to avoid false positives
-        const member = p.members.find(m => {
-          if (m.userId === S.user.id) return false;
-          const full  = (m.user?.fullName || '').toLowerCase();
-          const first = full.split(' ')[0];
-          return full === mentionedName || first === mentionedName;
-        });
-        if (member && !notified.has(member.userId)) {
+      const notified   = new Set();
+      // Match against actual member names — avoids greedy regex false positives
+      for (const member of p.members) {
+        if (member.userId === S.user.id) continue;
+        const fullName  = (member.user?.fullName || '').trim();
+        const firstName = fullName.split(' ')[0];
+        if (!fullName) continue;
+        // Check if message contains @FullName or @FirstName
+        const mentionedFull  = txt.includes('@' + fullName);
+        const mentionedFirst = txt.includes('@' + firstName);
+        if ((mentionedFull || mentionedFirst) && !notified.has(member.userId)) {
           notified.add(member.userId);
           PushEngine.sendPushToUser(member.userId, senderName + ' mentioned you - ' + (p.title || 'uni-co'), preview, pid);
         }
