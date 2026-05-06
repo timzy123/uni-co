@@ -567,11 +567,29 @@ const StorageEngine = (() => {
 
     downloadFile: async (id) => {
       const f = await get('files', id);
-      if (!f?.dataUrl) return;
-      const a = document.createElement('a');
-      a.href = f.dataUrl;
-      a.download = f.filename;
-      a.click();
+      if (!f) return;
+      // If stored in Supabase Storage use the public/signed URL
+      if (f.fileUrl || f.filePath) {
+        let url = f.fileUrl;
+        if (!url && f.filePath) {
+          try {
+            const { data } = await sb().storage.from('project-files').createSignedUrl(f.filePath, 60);
+            url = data?.signedUrl;
+          } catch(e) {}
+        }
+        if (url) {
+          const a = document.createElement('a');
+          a.href = url; a.download = f.filename; a.target = '_blank';
+          document.body.appendChild(a); a.click(); document.body.removeChild(a);
+          return;
+        }
+      }
+      // Fallback: old base64 dataUrl
+      if (f.dataUrl) {
+        const a = document.createElement('a');
+        a.href = f.dataUrl; a.download = f.filename;
+        a.click();
+      }
     },
 
     deleteFile: async (id) => {
@@ -2716,6 +2734,13 @@ async function saveTask() {
   });
   M.close('task-detail');
   toast('Task saved', 'success');
+
+  // Push assignee if status changed
+  if (newStatus !== prev.status && prev.assigneeId && prev.assigneeId !== S.user?.id) {
+    const label = newStatus === 'DONE' ? 'Task completed' : newStatus === 'IN_PROGRESS' ? 'Task in progress' : 'Task moved to To Do';
+    PushEngine.sendPushToUser(prev.assigneeId, label + ' - ' + (window._wsProject?.title || 'uni-co'), '"' + (prev.title || 'Task') + '" was updated by ' + (S.user?.fullName || 'a teammate'), window._wsProject?.id);
+  }
+
   // Trigger done-glow if moved to DONE
   if (newStatus === 'DONE' && prev.status !== 'DONE') {
     setTimeout(() => {
@@ -3443,12 +3468,89 @@ async function dropFile(e, pid) {
   document.getElementById('upzone')?.classList.remove('drag');
   for (const f of e.dataTransfer.files) await doUpload(f, pid);
 }
+
 async function doUpload(file, pid) {
   if (demoGuard()) return;
-  toast(`Uploading ${file.name}...`);
-  await StorageEngine.uploadFile(pid, S.user.id, file);
-  toast(`${file.name} uploaded`, 'success');
-  reloadWs();
+  if (file.size > 50 * 1024 * 1024) { toast('File exceeds 50 MB limit', 'error'); return; }
+
+  const cleanName = file.name.replace(/[<>:"/\\|?*]/g, '_');
+  const safeFile  = new File([file], cleanName, { type: file.type });
+
+  // Build progress card
+  const progId = 'up-' + Date.now();
+  const card   = document.createElement('div');
+  card.id      = progId;
+  card.style.cssText = 'background:var(--bg2);border:1px solid var(--bor);border-radius:10px;padding:10px 14px;margin-bottom:8px';
+  card.innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;gap:8px">
+      <span style="color:var(--tx);font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">${esc(cleanName)}</span>
+      <span id="${progId}-pct" style="color:var(--tx3);font-size:12px;flex-shrink:0">0%</span>
+    </div>
+    <div style="height:5px;background:var(--bor);border-radius:3px;overflow:hidden">
+      <div id="${progId}-fill" style="height:100%;width:0%;background:var(--brand);border-radius:3px;transition:width 0.15s ease"></div>
+    </div>`;
+  const list = document.getElementById('files-list');
+  if (list) list.insertBefore(card, list.firstChild);
+
+  const setProgress = (pct, color) => {
+    const fill = document.getElementById(progId + '-fill');
+    const lbl  = document.getElementById(progId + '-pct');
+    if (fill) { fill.style.width = pct + '%'; if (color) fill.style.background = color; }
+    if (lbl)  lbl.textContent = pct === 100 ? 'Done' : pct + '%';
+  };
+
+  try {
+    const filePath = pid + '/' + Date.now() + '_' + cleanName;
+
+    // XHR upload for real progress events
+    await new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', window.SUPABASE_URL + '/storage/v1/object/project-files/' + filePath);
+      xhr.setRequestHeader('Authorization', 'Bearer ' + window.SUPABASE_ANON_KEY);
+      xhr.setRequestHeader('Content-Type', safeFile.type || 'application/octet-stream');
+      xhr.setRequestHeader('x-upsert', 'true');
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) setProgress(Math.round(e.loaded / e.total * 95));
+      };
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) { setProgress(100); resolve(); }
+        else reject(new Error('Upload failed: ' + xhr.status + ' ' + xhr.responseText));
+      };
+      xhr.onerror = () => reject(new Error('Network error during upload'));
+      xhr.send(safeFile);
+    });
+
+    // Get public URL
+    const sb = StorageEngine._sb();
+    const { data: urlData } = sb.storage.from('project-files').getPublicUrl(filePath);
+
+    // Save record to DB
+    await StorageEngine.put('files', {
+      id:           StorageEngine.uid(),
+      projectId:    pid,
+      uploadedById: S.user.id,
+      filename:     cleanName,
+      fileType:     cleanName.split('.').pop() || 'bin',
+      sizeBytes:    safeFile.size,
+      mimeType:     safeFile.type,
+      fileUrl:      urlData?.publicUrl || '',
+      filePath,
+      version:      1,
+      tags:         [],
+      createdAt:    StorageEngine.now(),
+    });
+
+    setTimeout(() => { document.getElementById(progId)?.remove(); }, 1200);
+    toast(cleanName + ' uploaded', 'success');
+    reloadWs();
+  } catch(e) {
+    console.error('[uni-co] Upload error:', e);
+    setProgress(100, 'var(--err)');
+    const lbl = document.getElementById(progId + '-pct');
+    if (lbl) lbl.textContent = 'Failed';
+    setTimeout(() => { document.getElementById(progId)?.remove(); }, 3000);
+    toast(e.message || 'Upload failed', 'error');
+  }
 }
 
 /* ── File Preview Modal ─────────────────────────────────────────────── */
@@ -3863,7 +3965,11 @@ function handleMentionInput(input) {
   const members = (window._wsProject?.members || []);
   const hits    = members
     .filter(m => m.userId !== S.user?.id)
-    .filter(m => (m.user?.fullName || '').toLowerCase().includes(query))
+    .filter(m => {
+      const full  = (m.user?.fullName || '').toLowerCase();
+      const first = full.split(' ')[0];
+      return full.includes(query) || first.startsWith(query);
+    })
     .slice(0, 5);
 
   if (hits.length === 0) { closeMentionDropdown(); return; }
@@ -4061,6 +4167,29 @@ async function sendChat(pid) {
     // Update temp element with real ID
     const tempEl = msgs?.querySelector(`[data-mid="${tempId}"]`);
     if (tempEl) tempEl.setAttribute('data-mid', saved.id);
+
+    // Push @mentioned members
+    // Regex captures name until punctuation or end — stops at space+lowercase to avoid eating sentence
+    const mentionMatches = [...txt.matchAll(/@([A-Za-z][A-Za-z0-9._-]*(?:\s[A-Z][A-Za-z0-9._-]*)*)/g)];
+    if (mentionMatches.length > 0 && p?.members) {
+      const senderName = S.user?.fullName || 'Someone';
+      const preview    = txt.length > 80 ? txt.slice(0, 80) + '...' : txt;
+      const notified   = new Set(); // avoid double-notifying same person
+      for (const match of mentionMatches) {
+        const mentionedName = match[1].trim().toLowerCase();
+        // Match on full name OR first name — take longest match to avoid false positives
+        const member = p.members.find(m => {
+          if (m.userId === S.user.id) return false;
+          const full  = (m.user?.fullName || '').toLowerCase();
+          const first = full.split(' ')[0];
+          return full === mentionedName || first === mentionedName;
+        });
+        if (member && !notified.has(member.userId)) {
+          notified.add(member.userId);
+          PushEngine.sendPushToUser(member.userId, senderName + ' mentioned you - ' + (p.title || 'uni-co'), preview, pid);
+        }
+      }
+    }
   } catch(e) {
     // Roll back on failure
     const tempEl = msgs?.querySelector(`[data-mid="${tempId}"]`);
